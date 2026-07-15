@@ -62,6 +62,39 @@ python loginPage.py
 ```
 Once started, open your web browser and navigate to: `http://localhost:8080/`
 
+## GitHub Actions CI/CD Pipeline
+
+To ensure dependencies compile correctly and code changes pass checks, save the following code inside your repository as `.github/workflows/ci.yml`:
+
+```yaml
+name: Python Application CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v5
+
+    # Fixed version targeting Node 24 natively to prevent deprecation warnings
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+```
+
 ## Default Admin Accounts
 
 For initial configuration, the system recognizes the following master administrative accounts:
