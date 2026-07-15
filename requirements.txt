@@ -1,0 +1,4 @@
+nicegui
+bcrypt
+requests
+polars
