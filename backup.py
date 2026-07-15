@@ -6,9 +6,9 @@ from email.message import EmailMessage
 # Configuration
 DB_FILE = 'School_Results_Database.db'
 BACKUP_FILE = 'School_Results_Backup.db'
-SENDER_EMAIL = "your_email@gmail.com"  # Use a dedicated sender account
-PASSWORD = "your_app_password"         # Use an App Password, NOT your main password
-RECIPIENT = "unityluther@gmail.com"
+SENDER_EMAIL = "unityluther@gmail.com"  # Use a dedicated sender account
+PASSWORD = "sebuliba034229"         # Use an App Password, NOT your main password
+RECIPIENT = "postywalker0@gmail.com"
 
 def backup_db():
     # 1. Create a safe binary copy of the database
