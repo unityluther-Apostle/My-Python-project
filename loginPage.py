@@ -129,5 +129,5 @@ pages = ui.sub_pages(routes={
 })
 # Force the router container to be full width
 pages.classes('w-full') 
-ui.run(host='0.0.0.0', port=10000, reload=False)
+ui.run(host='0.0.0.0', port=10000, reload=False,storage_secret='some_long_random_string_here')
 
