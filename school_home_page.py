@@ -193,6 +193,9 @@ def handle_logout():
     ui.navigate.to('/login')
 
 def home(client=None):
+    if not app_state.get('logged_in'):
+        ui.navigate.to('/login')
+        return
     global student_table
     ui.query('.q-page, .nicegui-content').style('max-width: none !important; width: 100% !important; padding: 0 !important;')
     ui.query('.nicegui-content').classes('w-full min-h-screen justify-center items-center flex bg-slate-50 p-4')
