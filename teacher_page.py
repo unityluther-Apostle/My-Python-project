@@ -60,6 +60,7 @@ def edit_record(record, on_save):
                 'Science': ui.number('Science', value=record['Science']),
                 'Remarks': ui.input('Remarks', value=record['Remarks'])
             }
+        
         def save():
             with sqlite3.connect(DB) as conn:
                 conn.execute('''UPDATE academic_records SET 
@@ -71,6 +72,7 @@ def edit_record(record, on_save):
             ui.notify("Record updated successfully!", type='positive')
             dialog.close()
             on_save()
+        
         ui.button('Save Changes', on_click=save).classes('w-full mt-6 bg-[#800000] text-white')
     dialog.open()
 
@@ -114,21 +116,54 @@ def view_records_content():
 
 # --- 4. STAFF HOME ---
 def teacher():
-    ui.query('.nicegui-content').classes('w-full min-h-screen bg-slate-100 p-8')
-    verses = ["Train up a child... — Proverbs 22:6", "Let the children come... — Matthew 19:14", "For I know the plans... — Jeremiah 29:11", "I can do all things... — Philippians 4:13"]
+    ui.query('.nicegui-content').classes('w-full min-h-screen bg-stone-50 p-8')
+    
+    verses = [
+        "Train up a child in the way he should go... — Proverbs 22:6",
+        "Let the children come to me... — Matthew 19:14",
+        "For I know the plans I have for you... — Jeremiah 29:11",
+        "I can do all things through Christ... — Philippians 4:13",
+        "The Lord bless you and keep you... — Numbers 6:24",
+        "Your word is a lamp to my feet... — Psalm 119:105",
+        "Be strong and courageous... — Joshua 1:9",
+        "Let your light shine before others... — Matthew 5:16",
+        "The fruit of the Spirit is love, joy, peace... — Galatians 5:22",
+        "Trust in the Lord with all your heart... — Proverbs 3:5",
+        "Do your best to present yourself to God... — 2 Timothy 2:15",
+        "Children are a heritage from the Lord... — Psalm 127:3",
+        "The fear of the Lord is the beginning of wisdom... — Proverbs 9:10",
+        "Whatever you do, work at it with all your heart... — Colossians 3:23",
+        "The Lord is my light and my salvation... — Psalm 27:1",
+        "For God has not given us a spirit of fear... — 2 Timothy 1:7",
+        "Great are the works of the Lord... — Psalm 111:2",
+        "May the Lord give you strength... — Psalm 29:11",
+        "Love the Lord your God with all your heart... — Matthew 22:37",
+        "The Lord is good to all... — Psalm 145:9",
+        "Be kind to one another... — Ephesians 4:32",
+        "Let everything you do be done in love... — 1 Corinthians 16:14",
+        "I have loved you with an everlasting love... — Jeremiah 31:3",
+        "For where your treasure is, there your heart will be... — Matthew 6:21",
+        "The Lord will guide you always... — Isaiah 58:11",
+        "Blessed are those who hunger and thirst for righteousness... — Matthew 5:6",
+        "Commit to the Lord whatever you do... — Proverbs 16:3",
+        "With God all things are possible... — Matthew 19:26",
+        "Grow in the grace and knowledge of our Lord... — 2 Peter 3:18",
+        "A cheerful heart is good medicine... — Proverbs 17:22"
+    ]
 
     with ui.column().classes('w-full items-center'):
         with ui.column().classes('w-[95%] max-w-7xl gap-8'):
-            # Header
-            with ui.card().classes('w-full p-12 bg-white shadow-lg rounded-3xl text-center'):
-                ui.label('Instructor Portal').classes('text-5xl font-extrabold')
             
-            # Daily Inspiration
+            # --- Header ---
+            with ui.card().classes('w-full p-12 bg-white shadow-lg rounded-3xl text-center'):
+                ui.label("Teacher's Portal").classes('text-5xl font-extrabold')
+            
+            # --- Daily Inspiration ---
             with ui.card().classes('w-full p-6 bg-amber-50 border-l-8 border-amber-400'):
                 ui.label('📖 Daily Inspiration').classes('text-amber-900 font-bold text-sm')
                 ui.label(random.choice(verses)).classes('text-amber-800 italic text-xl')
             
-            # Tabs
+            # --- Tabs ---
             with ui.tabs().classes('w-full bg-white/80 backdrop-blur-md p-2 rounded-3xl shadow-xl border border-white/20') as tabs:
                 tabs.classes('items-center justify-center')
                 ui.tab('Dashboard', icon='dashboard').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
@@ -136,56 +171,71 @@ def teacher():
                 ui.tab('View Records', icon='assignment').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
                 ui.tab('Logout', icon='logout').classes('rounded-2xl transition-all duration-300 hover:bg-red-100 text-red-600')
         
-        with ui.tab_panels(tabs, value='Dashboard').classes('w-full bg-transparent'):
-            with ui.tab_panel('Dashboard'):
-                metrics = get_dashboard_metrics()
-                ui.label('Class Performance Analytics').classes('text-2xl font-bold text-gray-800 mb-6')
+            with ui.tab_panels(tabs, value='Dashboard').classes('w-full bg-transparent'):
                 
-                if metrics:
-                    with ui.row().classes('w-full gap-6'):
-                        # KPIs
-                        with ui.card().classes('w-full md:w-1/3 p-6 shadow-sm border-t-4 border-t-indigo-500'):
-                            ui.label('Subject Performance Trends').classes('text-sm font-semibold text-gray-500 mb-4')
-                            with ui.row().classes('w-full justify-between'):
-                                with ui.column().classes('items-center'):
-                                    ui.icon('trending_up', color='green', size='2rem')
-                                    ui.label('Top').classes('text-xs text-gray-400 uppercase')
-                                    ui.label(metrics['best']).classes('text-lg font-bold text-green-700')
-                                with ui.column().classes('items-center'):
-                                    ui.icon('trending_down', color='red', size='2rem')
-                                    ui.label('Low').classes('text-xs text-gray-400 uppercase')
-                                    ui.label(metrics['worst']).classes('text-lg font-bold text-red-700')
+                # --- Dashboard Panel ---
+                with ui.tab_panel('Dashboard'):
+                    metrics = get_dashboard_metrics()
+                    with ui.row().classes('items-center mb-6'):
+                            ui.icon('analytics', color='indigo', size='2rem')
+                            ui.label('Performance Analytics').classes('text-2xl font-bold text-gray-800 ml-2')
+                    
+                    if metrics:
+                        with ui.row().classes('w-full gap-6'):
+                            # KPIs
+                            with ui.card().classes('w-full md:w-1/3 p-6 shadow-sm border-t-4 border-t-indigo-500'):
+                                ui.label('Subject Performance Trends').classes('text-sm font-semibold text-gray-500 mb-4')
+                                with ui.row().classes('w-full justify-between'):
+                                    with ui.column().classes('items-center'):
+                                        ui.icon('trending_up', color='green', size='2rem')
+                                        ui.label('Top').classes('text-xs text-gray-400 uppercase')
+                                        ui.label(metrics['best']).classes('text-lg font-bold text-green-700')
+                                    with ui.column().classes('items-center'):
+                                        ui.icon('trending_down', color='red', size='2rem')
+                                        ui.label('Low').classes('text-xs text-gray-400 uppercase')
+                                        ui.label(metrics['worst']).classes('text-lg font-bold text-red-700')
 
-                        # Support & Achievement Lists
-                        with ui.card().classes('w-full md:w-[63%] p-6 shadow-sm'):
-                            with ui.row().classes('w-full gap-8'):
-                                with ui.column().classes('flex-1'):
-                                    ui.label('Academic Intervention').classes('text-sm font-bold text-red-800 mb-3 flex items-center')
-                                    ui.icon('warning_amber', color='red', size='1.2rem')
-                                    for s in metrics['at_risk']:
-                                        with ui.row().classes('w-full justify-between py-1 border-b border-gray-100'):
-                                            ui.label(s['Name']).classes('text-sm')
-                                            ui.label(f"{round(s['Average'] or 0, 1)}%").classes('font-mono text-xs text-red-600')
-                                
-                                with ui.column().classes('flex-1'):
-                                    ui.label('Rising Stars').classes('text-sm font-bold text-green-800 mb-3')
-                                    ui.icon('workspace_premium', color='green', size='1.2rem')
-                                    for s in metrics['rising']:
-                                        with ui.row().classes('w-full justify-between py-1 border-b border-gray-100'):
-                                            ui.label(s['Name']).classes('text-sm')
-                                            ui.label(f"{round(s['Average'] or 0, 1)}%").classes('font-mono text-xs text-green-600')
-                else:
-                    with ui.card().classes('w-full p-10 items-center'):
-                        ui.icon('analytics', size='3rem', color='grey')
-                        ui.label('No academic data available for analysis.').classes('text-gray-500 mt-2')
+                            # Support & Achievement Lists
+                            with ui.card().classes('w-full md:w-[63%] p-6 shadow-sm'):
+                                with ui.row().classes('w-full gap-8'):
+                                    # Column 1: Academic Intervention
+                                    with ui.column().classes('flex-1'):
+                                        with ui.row().classes('items-center gap-2 mb-3'):
+                                            ui.icon('warning_amber', color='red', size='1.5rem')
+                                            ui.label('Academic Intervention').classes('text-sm font-bold text-red-800')
+                                        for s in metrics['at_risk']:
+                                            with ui.row().classes('w-full justify-between py-1 border-b border-gray-100'):
+                                                ui.label(f"{s['Name']} ({s['Class']})").classes('text-sm')
+                                                ui.label(f"{round(s['Average'] or 0, 1)}%").classes('font-mono text-xs text-red-600')
 
-            with ui.tab_panel('Input Data'):
-                with ui.card().classes('w-full p-6'):
-                    insert.insert()
+                                    # Column 2: Rising Stars
+                                    with ui.column().classes('flex-1 bg-green-50 p-4 rounded shadow-sm border border-green-100'):
+                                        with ui.row().classes('items-center gap-2 mb-3'):
+                                            ui.icon('workspace_premium', color='green', size='1.5rem')
+                                            ui.label('Rising Stars').classes('text-sm font-bold text-green-800')
+                                        for s in metrics['rising']:
+                                            with ui.row().classes('w-full justify-between py-1 border-b border-green-100'):
+                                                ui.label(f"{s['Name']} ({s['Class']})").classes('text-sm')
+                                                ui.label(f"{round(s['Average'] or 0, 1)}%").classes('font-mono text-xs text-green-600')
+                    else:
+                        with ui.card().classes('w-full p-10 items-center'):
+                            ui.icon('analytics', size='3rem', color='grey')
+                            ui.label('No academic data available for analysis.').classes('text-gray-500 mt-2')
 
-            with ui.tab_panel('View Records'):
-                with ui.card().classes('w-full p-6'):
-                    view_records_content()
+                # --- Input Data Panel ---
+                with ui.tab_panel('Input Data'):
+                    with ui.card().classes('w-full p-6'):
+                        insert.insert()
 
-            with ui.tab_panel('Logout'):
-                ui.button('Sign Out', on_click=lambda: ui.navigate.to('/'))
+                # --- View Records Panel ---
+                with ui.tab_panel('View Records'):
+                    with ui.card().classes('w-full p-6'):
+                        view_records_content()
+
+                # --- Logout Panel ---
+                with ui.tab_panel('Logout'):
+                    with ui.card().classes('w-[300px] mx-auto items-center p-8'):
+                        ui.icon('logout', size='4rem', color='red-500')
+                        ui.label('Ready to leave?').classes('text-xl font-bold mt-4')
+                        ui.label('Your session will be closed.').classes('text-gray-500 mb-6')
+                        ui.button('Confirm Sign Out', color='red', on_click=lambda: ui.navigate.to('/')).classes('w-full')
