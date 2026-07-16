@@ -100,7 +100,7 @@ def insert():
     ui.query('body').classes('bg-gray-100')
     inputs = {}
     with ui.column().classes('w-full max-w-7xl mx-auto p-6 items-center'):
-        ui.label("Ugandan Instructor Portal").classes('text-4xl font-black text-[#800000] mb-8')
+        ui.label("Teacher's Portal").classes('text-4xl font-black text-[#800000] mb-8')
         with ui.row().classes('w-full gap-8 justify-center items-start'):
             with ui.card().classes('w-full max-w-md p-6 bg-white border-t-8 border-[#800000] shadow-xl'):
                 ui.label("Student Assessment Entry").classes('text-lg font-bold text-gray-700 mb-4')
@@ -127,11 +127,12 @@ def insert():
             with ui.card().classes('w-full max-w-4xl p-6 bg-white shadow-lg'):
                 ui.label("Student Records Database").classes('text-lg font-bold text-gray-700 mb-4')
                 student_table = ui.table(columns=[
-                    {'name': 'actions', 'label': 'Report', 'field': 'actions', 'align': 'center'},
+                    
                     {'name': 'Rank', 'label': 'Rank', 'field': 'Rank'},
                     {'name': 'Name', 'label': 'Name', 'field': 'Name'},
                     {'name': 'Class', 'label': 'Class', 'field': 'Class'},
                     {'name': 'Average', 'label': 'Avg', 'field': 'Average'},
+                    {'name': 'actions', 'label': 'Report', 'field': 'actions', 'align': 'center'},
                 ], rows=[], row_key='id').classes('w-full')
                 
                 student_table.add_slot('body-cell-actions', '''
