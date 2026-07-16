@@ -128,11 +128,11 @@ def insert():
                 ui.label("Student Records").classes('text-lg font-bold text-gray-700 mb-4')
                 student_table = ui.table(columns=[
                     
-                    #{'name': 'Rank', 'label': 'Rank', 'field': 'Rank'},
+                    {'name': 'Rank', 'label': 'Rank', 'field': 'Rank'},
                     {'name': 'Name', 'label': 'Name', 'field': 'Name'},
                     {'name': 'Class', 'label': 'Class', 'field': 'Class'},
                     {'name': 'Average', 'label': 'Avg', 'field': 'Average'},
-                    {'name': 'actions', 'label': 'Report', 'field': 'actions', 'align': 'center'},
+                    #{'name': 'actions', 'label': 'Report', 'field': 'actions', 'align': 'center'},
                 ], rows=[], row_key='id').classes('w-full')
                 
                 student_table.add_slot('body-cell-actions', '''
