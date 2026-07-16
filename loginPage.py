@@ -6,10 +6,10 @@ from insert import insert
 import sqlite3
 from datetime import datetime
 
-app_state = {
-    'logged_in': False,
-    'current_user': None
-}
+# app_state = {
+#     'logged_in': False,
+#     'current_user': None
+# }
 
 ui.colors(primary='#800000', secondary='#ffffff', accent='#f59e0b')
 
