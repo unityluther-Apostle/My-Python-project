@@ -392,8 +392,6 @@ with sqlite3.connect(DB) as conn:
         cursor.execute("UPDATE academic_records SET Grade=? WHERE id=?", (metrics['Grade'], record_dict['id']))
     conn.commit()
 
-import polars as pl
-
 #this ensures that the ranks of different classes are preversed 
 def update_all_ranks():
     with sqlite3.connect(DB) as conn:
