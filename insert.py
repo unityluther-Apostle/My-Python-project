@@ -125,10 +125,10 @@ def insert():
                 ui.button('Save Student Record', on_click=save).classes('w-full mt-6 bg-[#800000] text-white py-3 font-bold')
 
             with ui.card().classes('w-full max-w-4xl p-6 bg-white shadow-lg'):
-                ui.label("Student Records Database").classes('text-lg font-bold text-gray-700 mb-4')
+                ui.label("Student Records").classes('text-lg font-bold text-gray-700 mb-4')
                 student_table = ui.table(columns=[
                     
-                    {'name': 'Rank', 'label': 'Rank', 'field': 'Rank'},
+                    #{'name': 'Rank', 'label': 'Rank', 'field': 'Rank'},
                     {'name': 'Name', 'label': 'Name', 'field': 'Name'},
                     {'name': 'Class', 'label': 'Class', 'field': 'Class'},
                     {'name': 'Average', 'label': 'Avg', 'field': 'Average'},
