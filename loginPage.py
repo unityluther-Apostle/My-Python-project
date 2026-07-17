@@ -129,7 +129,5 @@ pages = ui.sub_pages(routes={
 })
 # Force the router container to be full width
 pages.classes('w-full') 
-ui.run(storage_secret='YOUR_SECURE_RANDOM_STRING_HERE',
-        port=None if 'GUNICORN_CMD_ARGS' in os.environ else 8080, # or your preferred dev port
-        reload=False)
+ui.run()
 
