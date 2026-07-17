@@ -116,9 +116,7 @@ def view_records_content():
 
 # --- 4. STAFF HOME ---
 def teacher():
-    if not app_state.get('logged_in'):
-        ui.navigate.to('/login')
-        return
+    
     ui.query('.nicegui-content').classes('w-full min-h-screen bg-stone-50 p-8')
     
     verses = [
