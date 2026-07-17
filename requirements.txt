@@ -2,5 +2,3 @@ nicegui
 bcrypt
 requests
 polars
-gunicorn
-uvicorn
