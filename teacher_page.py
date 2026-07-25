@@ -420,9 +420,10 @@ def performance_analytics_hub_content():
             val = selected_dropdown.value
             if not val or "No Classes Found" in val:
                 with metrics_display_area:
-                    ui.card().classes('w-full p-8 items-center').default_slot.text('No classes available for analysis.')
+                    with ui.card().classes('w-full p-8 items-center'):
+                        ui.label('No classes available for analysis.')
                 return
-                
+                        
             parts = val.split(': ')
             level_type = parts[0].strip()
             class_name = parts[1].strip()
