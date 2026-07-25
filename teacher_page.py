@@ -422,7 +422,7 @@ def performance_analytics_hub_content():
                 with metrics_display_area:
                     with ui.card().classes('w-full p-8 items-center'):
                         ui.label('No classes available for analysis.')
-                return
+        return
                         
             parts = val.split(': ')
             level_type = parts[0].strip()
