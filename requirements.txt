@@ -3,5 +3,4 @@ bcrypt
 requests
 polars
 fastapi
-starlette.middleware.base
-starlette.responses 
+starlette
