@@ -1,4 +1,3 @@
-name=school_home_page_2.py
 import sqlite3
 import io
 from datetime import datetime, timedelta
