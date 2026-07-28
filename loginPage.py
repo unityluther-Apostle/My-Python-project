@@ -76,13 +76,21 @@ ADMIN_ACCOUNTS = {
 
 # Main UI layout and logic for the Authentication Portal (Login, Register, Reset)
 def login_page():
-    # If already logged in, skip the login screen and go straight to their page permanently based on persistent storage/session
-    if app.storage.user.get('logged_in'):
-        username = app.storage.user.get('current_user')
-        if username in ADMIN_ACCOUNTS:
-            return ui.navigate.to('/home')
-        else:
-            return ui.navigate.to('/teacher')
+    # Permanently check database using persistent session_id cookie across server restarts
+    saved_session_id = app.storage.user.get('session_id')
+    saved_user = app.storage.user.get('current_user')
+
+    if saved_session_id and saved_user:
+        with sqlite3.connect(DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT Username FROM Users WHERE Username = ? AND current_session_id = ?", (saved_user, saved_session_id))
+            row = cursor.fetchone()
+            if row:
+                # Valid persistent database session found, bypass login screen permanently
+                if saved_user in ADMIN_ACCOUNTS:
+                    return ui.navigate.to('/home')
+                else:
+                    return ui.navigate.to('/teacher')
 
     with ui.row().classes('fixed inset-0 w-screen h-screen m-0 p-0 no-wrap bg-gradient-to-br from-slate-900 via-slate-800 to-[#500000] justify-center items-center overflow-hidden'):
         
@@ -227,6 +235,7 @@ def login_page():
 pages = ui.sub_pages(routes={
     '/' : login_page,
     '/login' : login_page,
+    '/_' : login_page,
     '/home' : school_home_page.home,
     '/teacher': teacher_page.teacher,
     '/insert': insert,
@@ -236,4 +245,4 @@ pages = ui.sub_pages(routes={
 pages.classes('w-full') 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title="School Report System", storage_secret='some_long_random_string_here')
+    ui.run(title="School Report System", storage_secret='some_long_random_string_here', port=8080)
