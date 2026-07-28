@@ -7,7 +7,6 @@ import polars as pl
 import insert
 import report
 import lower
-import os
 
 # Set the primary color theme for NiceGUI elements (Forest Dark Green)
 ui.colors(primary='#1b4d3e', secondary='#ffffff', accent='#f59e0b')
@@ -19,13 +18,14 @@ activity_table = None
 all_logs = []
 DB = 'School_Results_Database.db'
 
+# Initialize database tables and safely add columns (like Year, Aggregates, Division) if they do not exist
 def init_db_and_load_records():
     global student_records
     current_year_str = str(datetime.now().year)
     with sqlite3.connect(DB) as conn:
         cursor = conn.cursor()
         
-        # 1. Create academic records table if it doesn't already exist
+        # Create academic records table if it doesn't already exist
         cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS academic_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -33,7 +33,6 @@ def init_db_and_load_records():
                 PaymentCode TEXT, 
                 Class TEXT, 
                 Year TEXT DEFAULT '{current_year_str}', 
-                Term TEXT,
                 ExamType TEXT, 
                 ExamDate TEXT, 
                 Attendance TEXT, 
@@ -55,74 +54,27 @@ def init_db_and_load_records():
             )
         ''')
 
-        # 2. Create lower primary results table FIRST so it always exists
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS lower_primary_results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                payment_code TEXT,
-                name TEXT,
-                class_level TEXT,
-                term TEXT,
-                year TEXT,
-                literacy_i REAL,
-                literacy_ii REAL,
-                reading REAL,
-                luganda REAL,
-                mathematics REAL,
-                english REAL,
-                social_studies REAL,
-                science REAL,
-                re_religious_education REAL,
-                class_teacher TEXT,
-                timestamp TEXT
-            )
-        ''')
-
-        # Safely add columns to academic_records if missing
+        # Safely add columns to pre-existing tables if missing
         for col_def in [
             (f"Year TEXT DEFAULT '{current_year_str}'"),
             ("Aggregates INTEGER"),
             ("Division TEXT"),
-            ("PaymentCode TEXT"),
-            ("Term TEXT")
+            ("PaymentCode TEXT")
         ]:
             try:
                 cursor.execute(f"ALTER TABLE academic_records ADD COLUMN {col_def}")
             except sqlite3.OperationalError:
                 pass
 
-        # Backfill academic records year
+        # Backfill any blank or null year values with the current year
         cursor.execute(f"UPDATE academic_records SET Year = '{current_year_str}' WHERE Year IS NULL OR Year = ''")
 
         # Create activity logs tracking table
         cursor.execute('CREATE TABLE IF NOT EXISTS activity_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, timestamp TEXT, status TEXT)')
-        
-        # Safely check and add columns to lower_primary_results using PRAGMA table_info
-        cursor.execute("PRAGMA table_info(lower_primary_results)")
-        existing_columns = [row[1] for row in cursor.fetchall()]
-
-        if 'year' not in existing_columns:
-            try:
-                cursor.execute(f"ALTER TABLE lower_primary_results ADD COLUMN year TEXT DEFAULT '{current_year_str}'")
-            except sqlite3.OperationalError:
-                pass
-
-        if 'term' not in existing_columns:
-            try:
-                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN term TEXT")
-            except sqlite3.OperationalError:
-                pass
-
-        if 'timestamp' not in existing_columns:
-            try:
-                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
-            except sqlite3.OperationalError:
-                pass
-            
-        # Now safe to update lower primary results
-        cursor.execute(f"UPDATE lower_primary_results SET year = '{current_year_str}' WHERE year IS NULL OR year = ''")
-
         conn.commit()
+
+# Run database setup FIRST before any migration updates
+init_db_and_load_records()
 
 # --- AUTOMATIC INACTIVITY LOGOUT CHECKER & COUNTDOWN BANNER ---
 INACTIVITY_LIMIT_MINUTES = 30
@@ -264,7 +216,7 @@ def local_calculate_grades(raw_data):
     row["Rank"] = "N/A"
     return row
 
-# Helper to query student enrollment counts per class from SQLite (including lower primary)[cite: 4]
+# Helper to query student enrollment counts per class from SQLite (including lower primary)
 def get_class_enrollment_counts():
     counts = {}
     try:
@@ -293,7 +245,7 @@ def get_class_enrollment_counts():
         
     return counts
 
-# Retrieve aggregate dashboard statistics from SQLite[cite: 4]
+# Retrieve aggregate dashboard statistics from SQLite
 def get_dashboard_stats():
     stats = {
         'total_students': 0, 
@@ -360,7 +312,7 @@ def get_dashboard_stats():
 # System Logs Tab Panel
 def view_system_logs_content(logs_tab):
     with ui.tab_panel(logs_tab).classes('p-0 gap-4 flex flex-col'):
-        with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100 flex flex-col gap-4'):
+        with ui.card().classes('w-full p-6 bg-white shadow-md rounded-xl border border-slate-200 flex flex-col gap-4'):
             log_columns = [
                 {'name': 'id', 'label': 'ID', 'field': 'id', 'align': 'center', 'sortable': True},
                 {'name': 'username', 'label': 'User / Operator', 'field': 'username', 'align': 'left', 'sortable': True},
@@ -370,7 +322,7 @@ def view_system_logs_content(logs_tab):
 
             global activity_table, all_log_records
             all_log_records = []
-            activity_table = ui.table(columns=log_columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100 rounded-2xl')
+            activity_table = ui.table(columns=log_columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100')
 
             def refresh_activity_table():
                 global activity_table, all_log_records
@@ -398,42 +350,17 @@ def view_system_logs_content(logs_tab):
                     ]
                 activity_table.update()
 
-            def clear_old_logs():
-                with ui.dialog() as confirm_dialog, ui.card().classes('w-[400px] p-6 gap-4 rounded-3xl shadow-2xl bg-white border border-slate-100'):
-                    ui.label('Clear System Logs').classes('text-lg font-bold text-slate-800')
-                    ui.label('Are you sure you want to delete all recorded system activity logs? This action cannot be undone.').classes('text-sm text-slate-600')
-
-                    def confirm_delete():
-                        try:
-                            with sqlite3.connect(DB) as conn:
-                                cursor = conn.cursor()
-                                cursor.execute('DELETE FROM activity_logs')
-                                conn.commit()
-                            ui.notify('All system logs cleared successfully', type='positive')
-                            log_activity(app.storage.user.get('username', 'Admin'), "Cleared all system activity logs")
-                            confirm_dialog.close()
-                            refresh_activity_table()
-                        except Exception as e:
-                            ui.notify(f"Failed to clear logs: {e}", type='negative')
-
-                    with ui.row().classes('w-full justify-end gap-2 mt-2'):
-                        ui.button('Cancel', on_click=confirm_dialog.close).props('flat rounded').classes('text-slate-600')
-                        ui.button('Delete All Logs', on_click=confirm_delete).props('unelevated color="red" rounded').classes('px-5 text-white')
-                
-                confirm_dialog.open()
-
             with ui.row().classes('w-full justify-between items-center flex-wrap gap-2'):
-                ui.label('System Activity Logs & User Management').classes('text-xl font-bold text-slate-800')
+                ui.label('System Activity Logs & User Management').classes('text-lg font-bold text-slate-800')
 
-                with ui.row().classes('items-center gap-2 flex-wrap'):
-                    search_input = ui.input(placeholder='Search username or activity...').props('dense outlined clearable rounded').classes('bg-slate-50')
-                    ui.button(icon='search', on_click=lambda: apply_log_filter(search_input.value)).props('dense unelevated color="primary"').classes('rounded-xl')
-                    ui.button('Clear Logs', icon='delete_sweep', on_click=clear_old_logs).props('outline dense color="red"').classes('rounded-xl')
-                    ui.button('Refresh', icon='refresh', on_click=refresh_activity_table).props('outline dense text-color="primary"').classes('rounded-xl')
+                with ui.row().classes('items-center gap-2'):
+                    search_input = ui.input(placeholder='Search username or activity...').props('dense outlined clearable')
+                    ui.button(icon='search', on_click=lambda: apply_log_filter(search_input.value)).props('dense color="primary"')
+                    ui.button('Refresh Logs', icon='refresh', on_click=refresh_activity_table).props('outline dense text-color="primary"')
 
-            with ui.row().classes('w-full gap-3 items-center bg-slate-50/70 backdrop-blur-sm p-4 rounded-2xl border border-slate-200'):
+            with ui.row().classes('w-full gap-2 items-center bg-slate-50 p-3 rounded-lg border border-slate-200'):
                 ui.label('Quick User Actions:').classes('font-semibold text-sm text-slate-700')
-                target_user_input = ui.input(placeholder='Enter username...').props('dense outlined bg-white rounded').classes('w-48')
+                target_user_input = ui.input(placeholder='Enter username...').props('dense outlined bg-white').classes('w-48')
 
                 def force_logout_user():
                     username = target_user_input.value
@@ -449,18 +376,18 @@ def view_system_logs_content(logs_tab):
                         log_activity(app.storage.user.get('username', 'Admin'), f"Force logged out user: {username}")
                         target_user_input.value = ''
                         refresh_activity_table()
-                    except Exception:
+                    except Exception as e:
                         log_activity(app.storage.user.get('username', 'Admin'), f"Force logged out user: {username}")
                         ui.notify(f"Force logout recorded for '{username}'", type='positive')
                         target_user_input.value = ''
                         refresh_activity_table()
 
-                ui.button('Force Logout', icon='logout', on_click=force_logout_user).props('dense unelevated color="orange"').classes('rounded-xl text-white')
+                ui.button('Force Logout', icon='logout', on_click=force_logout_user).props('dense color="orange"')
 
             refresh_activity_table()
 
-# Query database records based on selected class, year, and term filters for Upper Primary
-def refresh_table_data(class_filter='All', year_filter='', term_filter='All'):
+# Query database records based on selected class and year filters
+def refresh_table_data(class_filter='All', year_filter='All'):
     global student_table, all_records
     if student_table is None:
         return
@@ -475,12 +402,9 @@ def refresh_table_data(class_filter='All', year_filter='', term_filter='All'):
             if class_filter != 'All':
                 query += " AND Class = ?"
                 params.append(class_filter)
-            if year_filter and year_filter.strip():
-                query += " AND Year LIKE ?"
-                params.append(f"%{year_filter.strip()}%")
-            if term_filter != 'All':
-                query += " AND Term = ?"
-                params.append(term_filter)
+            if year_filter != 'All':
+                query += " AND Year = ?"
+                params.append(year_filter)
                 
             cursor.execute(query, params)
             all_records = [dict(r) for r in cursor.fetchall()]
@@ -521,18 +445,17 @@ def delete_record(record_id):
 
 # Open an interactive dialog window to edit an existing student record's details
 def open_edit_dialog(record):
-    with ui.dialog() as edit_dialog, ui.card().classes('w-[450px] p-8 gap-4 rounded-3xl shadow-2xl bg-white border border-slate-100'):
-        ui.label(f"Edit Record: {record['Name']}").classes('text-xl font-bold text-slate-800')
+    with ui.dialog() as edit_dialog, ui.card().classes('w-[400px] p-6 gap-3'):
+        ui.label(f"Edit Record: {record['Name']}").classes('text-lg font-bold text-slate-800')
 
-        edit_name = ui.input('Name', value=record['Name']).classes('w-full').props('outlined rounded')
-        edit_payment_code = ui.input('Payment Code', value=record.get('PaymentCode', '')).classes('w-full').props('outlined rounded')
-        edit_class = ui.input('Class', value=record['Class']).classes('w-full').props('outlined rounded')
-        edit_year = ui.input('Year', value=record.get('Year', str(datetime.now().year))).classes('w-full').props('outlined rounded')
-        edit_term = ui.input('Term', value=record.get('Term', '')).classes('w-full').props('outlined rounded')
-        edit_maths = ui.number('Maths', value=record['Maths']).classes('w-full').props('outlined rounded')
-        edit_english = ui.number('English', value=record['English']).classes('w-full').props('outlined rounded')
-        edit_sst = ui.number('SST', value=record['SST']).classes('w-full').props('outlined rounded')
-        edit_science = ui.number('Science', value=record['Science']).classes('w-full').props('outlined rounded')
+        edit_name = ui.input('Name', value=record['Name']).classes('w-full')
+        edit_payment_code = ui.input('Payment Code', value=record.get('PaymentCode', '')).classes('w-full')
+        edit_class = ui.input('Class', value=record['Class']).classes('w-full')
+        edit_year = ui.input('Year', value=record.get('Year', str(datetime.now().year))).classes('w-full')
+        edit_maths = ui.number('Maths', value=record['Maths']).classes('w-full')
+        edit_english = ui.number('English', value=record['English']).classes('w-full')
+        edit_sst = ui.number('SST', value=record['SST']).classes('w-full')
+        edit_science = ui.number('Science', value=record['Science']).classes('w-full')
 
         def save_changes():
             if not edit_name.value or not edit_class.value:
@@ -552,12 +475,12 @@ def open_edit_dialog(record):
                     cursor = conn.cursor()
                     cursor.execute('''
                         UPDATE academic_records SET
-                            Name=?, PaymentCode=?, Class=?, Year=?, Term=?, Maths=?, Maths_Grade=?,
+                            Name=?, PaymentCode=?, Class=?, Year=?, Maths=?, Maths_Grade=?,
                             English=?, English_Grade=?, SST=?, SST_Grade=?,
                             Science=?, Science_Grade=?, Total=?, Average=?, Grade=?, Aggregates=?, Division=?
                         WHERE id=?
                     ''', (
-                        edit_name.value, edit_payment_code.value, edit_class.value, edit_year.value, edit_term.value,
+                        edit_name.value, edit_payment_code.value, edit_class.value, edit_year.value,
                         raw_scores['Maths'], updated_metrics['Maths_Grade'],
                         raw_scores['English'], updated_metrics['English_Grade'],
                         raw_scores['SST'], updated_metrics['SST_Grade'],
@@ -568,119 +491,40 @@ def open_edit_dialog(record):
                     ))
                     conn.commit()
 
+                # Ensure class-wide ranks and divisions sync properly across the table view
                 update_all_ranks()
 
                 ui.notify("Record updated and divisions recalculated successfully!", type='positive')
                 edit_dialog.close()
-                refresh_table_data(class_filter='All', year_filter='')
+                refresh_table_data(class_filter='All', year_filter='All')
                 log_activity(app.storage.user.get('username', 'Admin'), f"Edited record for {edit_name.value}")
             except Exception as e:
                 ui.notify(f"Update failed: {e}", type='negative')
 
         with ui.row().classes('w-full justify-end gap-2 mt-4'):
-            ui.button('Cancel', on_click=edit_dialog.close).props('flat rounded').classes('text-slate-600')
-            ui.button('Save Changes', on_click=save_changes).props('unelevated color="primary" rounded').classes('px-6 shadow-md')
+            ui.button('Cancel', on_click=edit_dialog.close).props('flat')
+            ui.button('Save', on_click=save_changes).props('unelevated color="primary"')
 
     edit_dialog.open()
 
-# --- INITIALIZE CHAT & LOWER PRIMARY DATABASE TABLES ---
+# --- INITIALIZE CHAT DATABASE TABLE ---
 def init_chat_db():
-  with sqlite3.connect(DB) as conn:
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS staff_chat (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT,
-            message TEXT,
-            timestamp TEXT
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS lower_primary_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            payment_code TEXT,
-            name TEXT,
-            class_level TEXT,
-            term TEXT,
-            year TEXT,
-            literacy_i REAL,
-            literacy_ii REAL,
-            reading REAL,
-            luganda REAL,
-            mathematics REAL,
-            english REAL,
-            social_studies REAL,
-            science REAL,
-            re_religious_education REAL,
-            class_teacher TEXT,
-            timestamp TEXT
-        )
-    ''')
-    
-    cursor.execute("PRAGMA table_info(lower_primary_results)")
-    existing_columns = [row[1] for row in cursor.fetchall()]
-
-    current_year_str = str(datetime.now().year)
-
-    if 'year' not in existing_columns:
-        try:
-            cursor.execute(f"ALTER TABLE lower_primary_results ADD COLUMN year TEXT DEFAULT '{current_year_str}'")
-        except sqlite3.OperationalError:
-            pass
-
-    if 'term' not in existing_columns:
-        try:
-            cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN term TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-    if 'timestamp' not in existing_columns:
-        try:
-            cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
-        except sqlite3.OperationalError:
-            pass
-    
-    cursor.execute(f"UPDATE lower_primary_results SET year = '{current_year_str}' WHERE year IS NULL OR year = ''")
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS academic_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Name TEXT,
-            PaymentCode TEXT,
-            Class TEXT,
-            Year TEXT,
-            Term TEXT,
-            ExamType TEXT,
-            ExamDate TEXT,
-            Attendance TEXT,
-            Remarks TEXT,
-            Maths INTEGER,
-            Maths_Grade TEXT,
-            English INTEGER,
-            English_Grade TEXT,
-            SST INTEGER,
-            SST_Grade TEXT,
-            Science INTEGER,
-            Science_Grade TEXT,
-            Total INTEGER,
-            Average REAL,
-            Grade TEXT,
-            Aggregates INTEGER,
-            Division TEXT,
-            Rank TEXT
-        )
-    ''')
-    
-    conn.commit()
+    with sqlite3.connect(DB) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS staff_chat (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT,
+                message TEXT,
+                timestamp TEXT
+            )
+        ''')
 
 init_chat_db()
 
 # --- STAFF CHAT ROOM CONTENT ---
 def staff_chat_content():
     chat_container = ui.column().classes(
-        'w-full h-[450px] overflow-y-auto p-5 bg-[#f0f4f8] rounded-2xl gap-3 shadow-inner'
+        'w-full h-[450px] overflow-y-auto p-5 bg-[#eaf3fb] rounded-none gap-3'
     )
 
     room_vibes = [
@@ -695,7 +539,10 @@ def staff_chat_content():
     def delete_message(msg_id):
         try:
             with sqlite3.connect(DB) as conn:
-                conn.execute('DELETE FROM staff_chat WHERE id = ?', (msg_id,))
+                conn.execute(
+                    'DELETE FROM staff_chat WHERE id = ?',
+                    (msg_id,)
+                )
             ui.notify('Message deleted', type='warning')
             load_messages()
         except Exception as e:
@@ -708,11 +555,15 @@ def staff_chat_content():
             try:
                 with sqlite3.connect(DB) as conn:
                     conn.row_factory = sqlite3.Row
-                    messages = conn.execute('SELECT * FROM staff_chat ORDER BY id ASC').fetchall()
+                    messages = conn.execute(
+                        'SELECT * FROM staff_chat ORDER BY id ASC'
+                    ).fetchall()
 
                 if not messages:
-                    with ui.column().classes('w-full items-center justify-center h-full gap-2'):
-                        ui.icon('chat_bubble_outline', size='48px', color='#1b4d3e').classes('opacity-40')
+                    with ui.column().classes(
+                        'w-full items-center justify-center h-full gap-2'
+                    ):
+                        ui.icon('chat_bubble_outline', size='48px', color='#60a5fa')
                         ui.label('No messages yet').classes('text-slate-500 font-semibold')
                         ui.label('Start the staff conversation').classes('text-xs text-slate-400')
                 else:
@@ -725,47 +576,47 @@ def staff_chat_content():
 
                         with ui.column().classes(f'w-full {align} gap-1'):
                             if not mine:
-                                ui.label(sender).classes('text-xs font-bold text-[#1b4d3e] ml-2')
+                                ui.label(sender).classes('text-xs font-bold text-blue-600 ml-2')
 
                             bubble = (
-                                'bg-[#1b4d3e] text-white rounded-br-sm shadow-md'
+                                'bg-[#3390ec] text-white rounded-br-sm'
                                 if mine
                                 else
                                 'bg-white text-slate-700 border border-slate-200 rounded-bl-sm shadow-sm'
                             )
 
-                            with ui.card().classes(f'{bubble} max-w-[75%] px-4 py-3 rounded-2xl'):
+                            with ui.card().classes(f'{bubble} max-w-[75%] px-4 py-2 rounded-2xl'):
                                 ui.label(msg['message']).classes('text-sm leading-relaxed whitespace-pre-wrap')
 
                                 with ui.row().classes('justify-end items-center gap-1 mt-1'):
                                     ui.label(msg['timestamp']).classes('text-[10px] opacity-70')
 
                                     if mine:
-                                        ui.icon('done_all', size='13px').classes('text-emerald-200')
+                                        ui.icon('done_all', size='13px').classes('text-blue-100')
                                         ui.button(
                                             icon='delete_outline',
                                             on_click=lambda mid=msg['id']: delete_message(mid)
-                                        ).props('flat dense round').classes('text-white/70 hover:bg-white/10')
+                                        ).props('flat dense round').classes('text-white/70')
             except Exception as e:
                 ui.label(f'Chat error: {e}').classes('text-red-500')
 
     with ui.column().classes(
-        'w-full max-w-4xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden'
+        'w-full max-w-3xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden'
     ):
         with ui.row().classes(
-            'w-full items-center justify-between bg-white px-6 py-4 border-b border-slate-100'
+            'w-full items-center justify-between bg-white px-5 py-4 border-b border-slate-200'
         ):
             with ui.row().classes('items-center gap-3'):
-                with ui.avatar().classes('bg-[#1b4d3e] text-white shadow-md'):
+                with ui.avatar().classes('bg-[#3390ec] text-white'):
                     ui.icon('school')
 
                 with ui.column().classes('gap-0'):
-                    ui.label('Staff Chat Hub').classes('font-bold text-slate-800 text-lg')
-                    ui.label(current_vibe).classes('text-xs font-medium text-emerald-700')
+                    ui.label('Staff Chat').classes('font-bold text-slate-800 text-base')
+                    ui.label(current_vibe).classes('text-xs text-green-600')
 
             with ui.row().classes('items-center gap-2'):
-                ui.badge('Online').classes('bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200 px-3 py-1 rounded-full')
-                ui.button(icon='refresh', on_click=load_messages).props('flat round').classes('text-[#1b4d3e] hover:bg-emerald-50')
+                ui.badge('Online').classes('bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200')
+                ui.button(icon='refresh', on_click=load_messages).props('flat round').classes('text-blue-500')
                 ui.timer(3, load_messages)
 
         load_messages()
@@ -773,17 +624,17 @@ def staff_chat_content():
         emojis = ["👍", "😂", "🔥", "❤️", "👏", "☕", "📚", "📝", "⚡", "🎉"]
 
         with ui.row().classes(
-            'w-full px-5 py-2 bg-slate-50 border-t border-slate-100 gap-1 overflow-x-auto'
+            'w-full px-4 py-2 bg-white border-t border-slate-100 gap-1 overflow-x-auto'
         ):
             for emoji in emojis:
                 def add_emoji(e=emoji):
                     msg_input.value = (msg_input.value or '') + e
                     msg_input.update()
 
-                ui.button(emoji, on_click=add_emoji).props('flat dense').classes('rounded-full hover:bg-emerald-100/50 text-base')
+                ui.button(emoji, on_click=add_emoji).props('flat dense').classes('rounded-full hover:bg-blue-50')
 
-        with ui.row().classes('w-full items-center gap-3 p-4 bg-white border-t border-slate-100'):
-            msg_input = ui.input(placeholder='Write a message...').props('borderless dense').classes('flex-1 bg-slate-100 rounded-full px-6 py-1 text-slate-700')
+        with ui.row().classes('w-full items-center gap-2 p-3 bg-white border-t border-slate-200'):
+            msg_input = ui.input(placeholder='Write a message...').props('borderless dense').classes('flex-1 bg-slate-100 rounded-full px-5')
 
             def send_message():
                 text = (msg_input.value or '').strip()
@@ -805,27 +656,26 @@ def staff_chat_content():
                     ui.notify(f'Failed sending message: {e}', type='negative')
 
             msg_input.on('keydown.enter', send_message)
-            ui.button(icon='send', on_click=send_message).props('round unelevated').classes('bg-[#1b4d3e] text-white w-11 h-11 shadow-md hover:opacity-90')
+            ui.button(icon='send', on_click=send_message).props('round unelevated').classes('bg-[#3390ec] text-white w-10 h-10')
 
 def edit_lower_record(record, on_save):
-    with ui.dialog() as edit_dialog, ui.card().classes('w-[480px] p-8 gap-4 rounded-3xl shadow-2xl bg-white border border-slate-100'):
-        ui.label(f"Edit Lower Primary Record: {record.get('name', '')}").classes('text-xl font-bold text-slate-800')
+    with ui.dialog() as edit_dialog, ui.card().classes('w-[450px] p-6 gap-3'):
+        ui.label(f"Edit Lower Primary Record: {record.get('name', '')}").classes('text-lg font-bold text-slate-800')
 
-        edit_name = ui.input('Pupil Name', value=record.get('name', '')).classes('w-full').props('outlined rounded')
-        edit_payment_code = ui.input('Payment Code', value=record.get('payment_code', '')).classes('w-full').props('outlined rounded')
-        edit_class = ui.input('Class', value=str(record.get('class_level', ''))).classes('w-full').props('outlined rounded')
-        edit_year = ui.input('Year', value=str(record.get('year', datetime.now().year))).classes('w-full').props('outlined rounded')
-        edit_term = ui.input('Term', value=str(record.get('term', ''))).classes('w-full').props('outlined rounded')
+        edit_name = ui.input('Pupil Name', value=record.get('name', '')).classes('w-full')
+        edit_payment_code = ui.input('Payment Code', value=record.get('payment_code', '')).classes('w-full')
+        edit_class = ui.input('Class', value=str(record.get('class_level', ''))).classes('w-full')
+        edit_term = ui.input('Term', value=str(record.get('term', ''))).classes('w-full')
         
-        edit_lit_i = ui.number('Lit I', value=record.get('literacy_i', 0)).classes('w-full').props('outlined rounded')
-        edit_lit_ii = ui.number('Lit II', value=record.get('literacy_ii', 0)).classes('w-full').props('outlined rounded')
-        edit_reading = ui.number('Reading', value=record.get('reading', 0)).classes('w-full').props('outlined rounded')
-        edit_luganda = ui.number('Luganda', value=record.get('luganda', 0)).classes('w-full').props('outlined rounded')
-        edit_maths = ui.number('Maths', value=record.get('mathematics', 0)).classes('w-full').props('outlined rounded')
-        edit_english = ui.number('English', value=record.get('english', 0)).classes('w-full').props('outlined rounded')
-        edit_sst = ui.number('S.S.T', value=record.get('social_studies', 0)).classes('w-full').props('outlined rounded')
-        edit_science = ui.number('Science', value=record.get('science', 0)).classes('w-full').props('outlined rounded')
-        edit_re = ui.number('R.E', value=record.get('re_religious_education', 0)).classes('w-full').props('outlined rounded')
+        edit_lit_i = ui.number('Lit I', value=record.get('literacy_i', 0)).classes('w-full')
+        edit_lit_ii = ui.number('Lit II', value=record.get('literacy_ii', 0)).classes('w-full')
+        edit_reading = ui.number('Reading', value=record.get('reading', 0)).classes('w-full')
+        edit_luganda = ui.number('Luganda', value=record.get('luganda', 0)).classes('w-full')
+        edit_maths = ui.number('Maths', value=record.get('mathematics', 0)).classes('w-full')
+        edit_english = ui.number('English', value=record.get('english', 0)).classes('w-full')
+        edit_sst = ui.number('S.S.T', value=record.get('social_studies', 0)).classes('w-full')
+        edit_science = ui.number('Science', value=record.get('science', 0)).classes('w-full')
+        edit_re = ui.number('R.E', value=record.get('re_religious_education', 0)).classes('w-full')
 
         def save_lower_changes():
             try:
@@ -833,12 +683,12 @@ def edit_lower_record(record, on_save):
                     cursor = conn.cursor()
                     cursor.execute('''
                         UPDATE lower_primary_results SET
-                            name=?, payment_code=?, class_level=?, year=?, term=?, literacy_i=?, literacy_ii=?,
+                            name=?, payment_code=?, class_level=?, term=?, literacy_i=?, literacy_ii=?,
                             reading=?, luganda=?, mathematics=?, english=?, social_studies=?,
                             science=?, re_religious_education=?
                         WHERE id=?
                     ''', (
-                        edit_name.value, edit_payment_code.value, edit_class.value, edit_year.value, edit_term.value,
+                        edit_name.value, edit_payment_code.value, edit_class.value, edit_term.value,
                         int(edit_lit_i.value or 0), int(edit_lit_ii.value or 0),
                         int(edit_reading.value or 0), int(edit_luganda.value or 0),
                         int(edit_maths.value or 0), int(edit_english.value or 0),
@@ -855,14 +705,14 @@ def edit_lower_record(record, on_save):
                 ui.notify(f"Update failed: {e}", type='negative')
 
         with ui.row().classes('w-full justify-end gap-2 mt-4'):
-            ui.button('Cancel', on_click=edit_dialog.close).props('flat rounded').classes('text-slate-600')
-            ui.button('Save Changes', on_click=save_lower_changes).props('unelevated color="primary" rounded').classes('px-6 shadow-md')
+            ui.button('Cancel', on_click=edit_dialog.close).props('flat')
+            ui.button('Save', on_click=save_lower_changes).props('unelevated color="primary"')
 
     edit_dialog.open()
 
 def view_lower_records_content(lower_primary_tab):
     with ui.tab_panel(lower_primary_tab).classes('p-0 gap-4 flex flex-col'):
-        with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100 flex flex-col gap-4'):
+        with ui.card().classes('w-full p-6 bg-white shadow-md rounded-xl border border-slate-200 flex flex-col gap-4'):
             
             def download_all_lower_reports():
                 if not all_lower_records:
@@ -885,28 +735,18 @@ def view_lower_records_content(lower_primary_tab):
                 except Exception as e:
                     ui.notify(f"Failed to generate bulk reports: {e}", type='negative')
 
-            with ui.row().classes('w-full justify-between items-center flex-wrap gap-3'):
-                ui.label('Lower Primary Academic Records').classes('text-xl font-bold text-slate-800')
+            with ui.row().classes('w-full justify-between items-center flex-wrap gap-2'):
+                ui.label('Lower Primary Academic Records').classes('text-lg font-bold text-slate-800')
 
-                with ui.row().classes('items-center gap-2 flex-wrap'):
+                with ui.row().classes('items-center gap-2'):
                     class_select = ui.select(
                         ['All', 'P1', 'P2', 'P3'],
                         value='All',
-                        label='Class'
-                    ).props('dense outlined rounded').classes('w-28 bg-slate-50')
-                    class_select.on('update:model-value', lambda: refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value))
+                        label='Filter by Class',
+                        on_change=lambda: refresh_lower_table_data(class_select.value)
+                    ).props('dense outlined').classes('w-32')
 
-                    lower_term_select = ui.select(
-                        ['All', 'Term I', 'Term II', 'Term III'],
-                        value='All',
-                        label='Term'
-                    ).props('dense outlined rounded').classes('w-32 bg-slate-50')
-                    lower_term_select.on('update:model-value', lambda: refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value))
-
-                    year_input = ui.input(placeholder='Year...').props('dense outlined clearable rounded').classes('w-28 bg-slate-50')
-                    year_input.on('change', lambda: refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value))
-
-                with ui.row().classes('items-center gap-2 flex-wrap'):
+                with ui.row().classes('items-center gap-2'):
                     def export_csv():
                         if not all_lower_records:
                             ui.notify("No data to export", type='warning')
@@ -917,17 +757,16 @@ def view_lower_records_content(lower_primary_tab):
                         ui.download(src=buffer.getvalue().encode('utf-8'), filename='lower_primary_records.csv')
                         ui.notify("Download started", type='positive')
 
-                    search_input = ui.input(placeholder='Search pupil...').props('dense outlined clearable rounded').classes('bg-slate-50')
-                    ui.button(icon='search', on_click=lambda: apply_lower_filter(search_input.value)).props('dense unelevated color="primary"').classes('rounded-xl')
-                    ui.button('Print All', icon='print', on_click=download_all_lower_reports).props('flat dense color="primary"').classes('rounded-xl')
-                    ui.button('Export CSV', icon='download', on_click=export_csv).props('flat dense color="primary"').classes('rounded-xl')
-                    ui.button('Refresh', icon='refresh', on_click=lambda: refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value)).props('outline dense text-color="primary"').classes('rounded-xl')
+                    search_input = ui.input(placeholder='Search pupil name...').props('dense outlined clearable')
+                    ui.button(icon='search', on_click=lambda: apply_lower_filter(search_input.value)).props('dense color="primary"')
+                    ui.button('Print All', icon='print', on_click=download_all_lower_reports).props('flat dense color="primary"')
+                    ui.button('Export CSV', icon='download', on_click=export_csv).props('flat dense color="primary"')
+                    ui.button('Refresh', icon='refresh', on_click=lambda: refresh_lower_table_data(class_select.value)).props('outline dense text-color="primary"')
 
             columns = [
                 {'name': 'name', 'label': 'Pupil Name', 'field': 'name', 'align': 'left', 'sortable': True},
                 {'name': 'payment_code', 'label': 'Payment Code', 'field': 'payment_code', 'align': 'center', 'sortable': True},
                 {'name': 'class_level', 'label': 'Class', 'field': 'class_level', 'align': 'center', 'sortable': True},
-                {'name': 'year', 'label': 'Year', 'field': 'year', 'align': 'center', 'sortable': True},
                 {'name': 'term', 'label': 'Term', 'field': 'term', 'align': 'center'},
                 {'name': 'literacy_i', 'label': 'Lit I', 'field': 'literacy_i', 'align': 'center'},
                 {'name': 'literacy_ii', 'label': 'Lit II', 'field': 'literacy_ii', 'align': 'center'},
@@ -947,11 +786,11 @@ def view_lower_records_content(lower_primary_tab):
             
             global lower_student_table, all_lower_records
             all_lower_records = []
-            lower_student_table = ui.table(columns=columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100 rounded-2xl')
+            lower_student_table = ui.table(columns=columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100')
             
             lower_student_table.add_slot('body-cell-_calc_grade', '''
                 <q-td :props="props">
-                    <q-badge :color="['D', 'E', 'F', 'F9'].includes(props.value) ? 'red' : 'green'" class="px-2 py-1 rounded-full font-bold">
+                    <q-badge :color="['D', 'E', 'F', 'F9'].includes(props.value) ? 'red' : 'green'">
                         {{ props.value }}
                     </q-badge>
                 </q-td>
@@ -1031,12 +870,12 @@ def view_lower_records_content(lower_primary_tab):
                         cursor.execute("DELETE FROM lower_primary_results WHERE id = ?", (record_id,))
                         conn.commit()
                     ui.notify("Lower primary record removed successfully", type='positive')
-                    refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value)
+                    refresh_lower_table_data(class_select.value)
                     log_activity(app.storage.user.get('username', 'Admin'), f"Deleted lower primary record ID {record_id}")
                 except Exception as e:
                     ui.notify(f"Delete failed: {e}", type='negative')
 
-            def refresh_lower_table_data(class_filter='All', year_filter='', term_filter='All'):
+            def refresh_lower_table_data(class_filter='All'):
                 global lower_student_table, all_lower_records
                 if lower_student_table is None:
                     return
@@ -1044,6 +883,7 @@ def view_lower_records_content(lower_primary_tab):
                     with sqlite3.connect(DB) as conn:
                         conn.row_factory = sqlite3.Row
                         
+                        # Handle column renaming check for existing databases
                         cursor = conn.cursor()
                         cursor.execute("PRAGMA table_info(lower_primary_results)")
                         columns_info = [col[1] for col in cursor.fetchall()]
@@ -1059,36 +899,8 @@ def view_lower_records_content(lower_primary_tab):
                                 conn.commit()
                             except Exception:
                                 pass
-                        if 'year' not in columns_info:
-                            try:
-                                cursor.execute(f"ALTER TABLE lower_primary_results ADD COLUMN year TEXT DEFAULT '{datetime.now().year}'")
-                                conn.commit()
-                            except Exception:
-                                pass
-                        if 'term' not in columns_info:
-                            try:
-                                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN term TEXT")
-                                conn.commit()
-                            except Exception:
-                                pass
-                        if 'timestamp' not in columns_info:
-                            try:
-                                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
-                                conn.commit()
-                            except Exception:
-                                pass
 
-                        query = "SELECT * FROM lower_primary_results WHERE 1=1"
-                        params = []
-
-                        if year_filter and year_filter.strip():
-                            query += " AND year LIKE ?"
-                            params.append(f"%{year_filter.strip()}%")
-                        if term_filter != 'All':
-                            query += " AND term = ?"
-                            params.append(term_filter)
-
-                        raw_rows = [dict(r) for r in cursor.execute(query, params).fetchall()]
+                        raw_rows = [dict(r) for r in conn.execute('SELECT * FROM lower_primary_results ORDER BY id DESC').fetchall()]
                         
                         all_lower_records = compute_lower_derived_fields(raw_rows)
                         
@@ -1104,7 +916,7 @@ def view_lower_records_content(lower_primary_tab):
             def apply_lower_filter(query):
                 global lower_student_table, all_lower_records
                 if not query:
-                    refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value)
+                    refresh_lower_table_data(class_select.value)
                 else:
                     filtered = [r for r in all_lower_records if query.lower() in str(r.get('name', '')).lower()]
                     if class_select.value != 'All':
@@ -1113,7 +925,7 @@ def view_lower_records_content(lower_primary_tab):
                     lower_student_table.update()
 
             def handle_edit_wrapper(row_data):
-                edit_lower_record(row_data, lambda: refresh_lower_table_data(class_select.value, year_input.value, lower_term_select.value))
+                edit_lower_record(row_data, lambda: refresh_lower_table_data(class_select.value))
 
             lower_student_table.on('download_lower_row', lambda msg: download_single_lower_report(msg.args))
             lower_student_table.on('edit_lower_row', lambda msg: handle_edit_wrapper(msg.args))
@@ -1121,7 +933,7 @@ def view_lower_records_content(lower_primary_tab):
 
             refresh_lower_table_data()
 
-# Main page layout and UI configuration function for NiceGUI[cite: 4]
+# Main page layout and UI configuration function for NiceGUI
 def home(client=None):
     global countdown_label
     if not app.storage.user.get('logged_in'):
@@ -1133,344 +945,311 @@ def home(client=None):
 
     global student_table, activity_table
     ui.query('.q-page, .nicegui-content').style('max-width: none !important; width: 100% !important; padding: 0 !important;')
-    ui.query('.nicegui-content').classes('flex flex-col items-center bg-slate-100/60 p-6')
+    ui.query('.nicegui-content').classes('flex flex-col items-center bg-slate-50 p-4')
 
     dashboard_data = get_dashboard_stats()
 
-    with ui.column().classes('w-full max-w-[1300px] items-center gap-6'):
-        # Modern Top Header Navigation Card with Glassmorphism
-        with ui.card().classes('w-full p-3 bg-white/90 backdrop-blur-xl shadow-xl rounded-3xl border border-white/40').tight():
-            with ui.row().classes('w-full items-center justify-between px-6 py-2'):
-                with ui.row().classes('items-center gap-3'):
-                    with ui.avatar().classes('bg-[#1b4d3e] text-white shadow-md'):
-                        ui.icon('school', size='24px')
-                    with ui.column().classes('gap-0'):
-                        ui.label('Strathearn Primary School').classes('text-2xl font-black text-slate-900 tracking-tight')
-                        ui.label('Masanafu • Academic Management Portal').classes('text-xs font-semibold text-emerald-800')
-                    
+    with ui.column().classes('w-full max-w-[1200px] items-center gap-4'):
+        with ui.card().classes('w-full p-2 bg-white shadow-md rounded-xl border border-slate-200').tight():
+            with ui.row().classes('w-full items-center justify-between px-4 py-1'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('school', color='#1b4d3e').classes('text-2xl')
+                    ui.label('AIM Pre-School').classes('text-3xl font-bold text-slate-800')
                     ui.add_head_html('''
-                        <style>
-                            .big-tabs .q-tab__label {
-                                font-size: 15px !important;
-                                font-weight: 600 !important;
-                            }
-                            .big-tabs .q-icon {
-                                font-size: 22px !important;
-                            }
-                            .big-tabs {
-                                min-height: 60px !important;
-                            }
-                            body {
-                                background-color: #f8fafc;
-                                font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-                            }
-                            
-                            @media print {
-                                body {
-                                    background: white !important;
+                            <style>
+                                .big-tabs .q-tab__label {
+                                    font-size: 18px !important;
+                                    font-weight: 700 !important;
                                 }
-                                .q-page-container, .q-page, .nicegui-content {
-                                    padding: 0 !important;
-                                    margin: 0 !important;
+                                .big-tabs .q-icon {
+                                    font-size: 28px !important;
                                 }
-                            }
-                        </style>
-                    ''')
+                                .big-tabs {
+                                    min-height: 70px !important;
+                                }
+                            </style>
+                        ''')
                 
-                with ui.row().classes('items-center gap-4'):
-                    with ui.row().classes('items-center gap-2 bg-emerald-50/80 px-4 py-2 rounded-2xl border border-emerald-100 shadow-sm'):
-                        ui.icon('timer', size='18px', color='primary')
-                        countdown_label = ui.label('Auto-logout in: 30:00').classes('text-xs font-bold text-[#1b4d3e]')
+                with ui.row().classes('items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200'):
+                    ui.icon('timer', size='18px', color='primary')
+                    countdown_label = ui.label('Auto-logout in: 30:00').classes('text-xs font-semibold text-slate-600')
 
-                    global unread_notifications_badge, notifications_menu
-                    with ui.row().classes('items-center gap-2 relative'):
-                        with ui.button(icon='notifications').props('flat round dense').classes('text-slate-700 bg-slate-100 hover:bg-emerald-100/60 transition-all'):
-                            unread_notifications_badge = ui.badge('0', color='red').props('floating').classes('text-[10px] font-bold')
-                        
-                        with ui.menu() as notifications_menu:
-                            with ui.card().classes('w-80 p-4 shadow-2xl rounded-3xl border border-slate-100'):
-                                ui.label('Live System Notifications').classes('text-sm font-bold text-slate-800 mb-3 border-b pb-2')
-                                notifications_container = ui.column().classes('w-full gap-2 max-h-60 overflow-y-auto')
-                                
-                                def update_notifications_dropdown():
-                                    notifications_container.clear()
-                                    try:
-                                        with sqlite3.connect(DB) as conn:
-                                            conn.row_factory = sqlite3.Row
-                                            recent_logs = conn.execute("SELECT username, timestamp, status FROM activity_logs ORDER BY id DESC LIMIT 5").fetchall()
-                                            if not recent_logs:
-                                                with notifications_container:
-                                                    ui.label('No new activity notifications').classes('text-xs text-slate-400 italic py-2')
-                                                if 'unread_notifications_badge' in globals() and unread_notifications_badge:
-                                                    unread_notifications_badge.text = '0'
-                                            else:
-                                                count = len(recent_logs)
-                                                if 'unread_notifications_badge' in globals() and unread_notifications_badge:
-                                                    unread_notifications_badge.text = str(count)
-                                                with notifications_container:
-                                                    for log in recent_logs:
-                                                        with ui.row().classes('w-full justify-between items-start py-2 border-b border-slate-50 last:border-none'):
-                                                            with ui.column().classes('gap-0.5 flex-1'):
-                                                                ui.label(f"{log['username']}: {log['status']}").classes('text-xs text-slate-800 font-semibold')
-                                                                ui.label(log['timestamp']).classes('text-[10px] text-slate-400')
-                                    except Exception:
-                                        pass
-
-                                update_notifications_dropdown()
-                                ui.timer(5.0, update_notifications_dropdown)
-
-            with ui.tabs().classes(
-                    'w-full bg-slate-100/70 p-2 rounded-2xl shadow-inner border border-slate-200/50 big-tabs'
-                ) as nav_tabs:
-                nav_tabs.classes('items-center justify-center gap-1')
-
-                home_tab = ui.tab('Dashboard', icon='dashboard').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                teachers_tab = ui.tab('Entry Manager', icon='edit_note').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                Upper_primary_tab = ui.tab('Upper Primary', icon='assignment').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                lower_primary_tab = ui.tab('Lower Primary', icon='menu_book').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                staff_chat_tab = ui.tab('Staff Chat', icon='forum').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                logs_tab = ui.tab('System Logs', icon='history').classes('rounded-xl transition-all duration-300 hover:bg-white/80 data-[selected]:bg-[#1b4d3e] data-[selected]:text-white data-[selected]:shadow-md')
-                logout_tab = ui.tab('Log Out', icon='logout').classes('rounded-xl transition-all duration-300 hover:bg-red-50 text-red-600 data-[selected]:bg-red-600 data-[selected]:text-white data-[selected]:shadow-md')
-            starting_tab = home_tab
-
-        with ui.tab_panels(nav_tabs, value=starting_tab).classes('w-full bg-transparent'):
-            with ui.tab_panel(home_tab).classes('p-0 gap-6 flex flex-col'):
-                # Hero Welcome Banner Card
-                with ui.card().classes('w-full p-8 bg-gradient-to-r from-[#1b4d3e] to-[#2d6a4f] text-white shadow-2xl rounded-3xl relative overflow-hidden'):
-                    with ui.row().classes('w-full items-center justify-between relative z-10 flex-wrap gap-4'):
-                        with ui.row().classes('items-center gap-6'):
-                            ui.image('badge.jpeg') \
-                                .classes('w-20 h-20 md:w-24 md:h-24 rounded-2xl shadow-lg object-cover border-2 border-white/30 flex-shrink-0 bg-white/10')
-
-                            with ui.column().classes('gap-1'):
-                                ui.label("Administrator Overview") \
-                                    .classes('text-3xl md:text-4xl font-extrabold tracking-tight text-white')
-                                ui.label(f"System Status: Operational • {datetime.now().strftime('%A, %B %d, %Y')}") \
-                                    .classes('text-emerald-100 text-sm font-medium opacity-90')
-                                ui.label('Centralized oversight for student academic progression and comprehensive report generation.') \
-                                    .classes('text-emerald-200/80 text-xs mt-1 max-w-xl')
-
-                # Quick Actions Grid
-                with ui.row().classes('w-full gap-4 items-stretch'):
-                    with ui.card().classes('flex-1 p-5 bg-white shadow-lg rounded-3xl border border-slate-100 cursor-pointer hover:shadow-xl hover:border-emerald-600 transition-all group') as btn_card1:
-                        with ui.row().classes('items-center gap-4'):
-                            ui.icon('person_add', color='primary').classes('text-3xl p-3 bg-emerald-50 rounded-2xl group-hover:scale-110 transition-transform')
-                            with ui.column().classes('gap-0'):
-                                ui.label('Add New Scores').classes('text-base font-bold text-slate-800')
-                                ui.label('Open marks entry form').classes('text-xs text-slate-400')
-                        btn_card1.on('click', lambda: nav_tabs.set_value(teachers_tab))
-
-                    with ui.card().classes('flex-1 p-5 bg-white shadow-lg rounded-3xl border border-slate-100 cursor-pointer hover:shadow-xl hover:border-emerald-600 transition-all group') as btn_card2:
-                        with ui.row().classes('items-center gap-4'):
-                            ui.icon('print', color='primary').classes('text-3xl p-3 bg-emerald-50 rounded-2xl group-hover:scale-110 transition-transform')
-                            with ui.column().classes('gap-0'):
-                                ui.label('Bulk Print Reports').classes('text-base font-bold text-slate-800')
-                                ui.label('Export class report sheets').classes('text-xs text-slate-400')
-                        btn_card2.on('click', download_all_reports)
-
-                    with ui.card().classes('flex-1 p-5 bg-white shadow-lg rounded-3xl border border-slate-100 cursor-pointer hover:shadow-xl hover:border-emerald-600 transition-all group') as btn_card3:
-                        with ui.row().classes('items-center gap-4'):
-                            ui.icon('forum', color='primary').classes('text-3xl p-3 bg-emerald-50 rounded-2xl group-hover:scale-110 transition-transform')
-                            with ui.column().classes('gap-0'):
-                                ui.label('Staff Chat Hub').classes('text-base font-bold text-slate-800')
-                                ui.label('Check teacher discussions').classes('text-xs text-slate-400')
-                        btn_card3.on('click', lambda: nav_tabs.set_value(staff_chat_tab))
-
-                # Statistics Cards Row
-                with ui.row().classes('w-full gap-4 items-stretch'):
-                    with ui.card().classes('flex-1 p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                        with ui.row().classes('items-center justify-between'):
-                            ui.label('TOTAL ENROLLMENT').classes('text-xs font-bold uppercase tracking-wider text-slate-400')
-                            ui.icon('group', color='primary').classes('text-xl bg-emerald-50 p-2 rounded-xl')
-                        ui.label(str(dashboard_data.get('total_students', 0))).classes('text-4xl font-black text-slate-900 mt-3')
-                        ui.label('Active Student Records').classes('text-xs font-semibold text-emerald-800 mt-1')
-
-                    with ui.card().classes('flex-1 p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                        with ui.row().classes('items-center justify-between'):
-                            ui.label('PRIMARY CLASSES').classes('text-xs font-bold uppercase tracking-wider text-slate-400')
-                            ui.icon('school', color='primary').classes('text-xl bg-emerald-50 p-2 rounded-xl')
-                        ui.label('P1 - P7').classes('text-4xl font-black text-slate-900 mt-3')
-                        ui.label('Managing controlled classrooms.').classes('text-xs font-semibold text-emerald-800 mt-1')
-
-                    with ui.card().classes('flex-1 p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                        with ui.row().classes('items-center justify-between'):
-                            ui.label('SUCCESS RATE').classes('text-xs font-bold uppercase tracking-wider text-slate-400')
-                            ui.icon('trending_up', color='primary').classes('text-xl bg-emerald-50 p-2 rounded-xl')
-
-                        perc = dashboard_data.get('pass_rate', 0) * 100
-                        percentage = round(perc, 1)
-                        status = "Optimal" if percentage >= 85 else "Satisfactory" if percentage >= 70 else "Needs Review"
-                        ui.label(f"{percentage}%").classes('text-4xl font-black text-slate-900 mt-3')
-                        ui.label(f"Performance Level: {status}").classes('text-xs font-semibold text-emerald-800 mt-1')
-
-                # Enrollment Breakdown Section (Updated to correctly parse counts for P1, P2, and P3)[cite: 4]
-                with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                    with ui.row().classes('items-center gap-2 mb-6'):
-                        ui.icon('groups', color='primary').classes('text-2xl')
-                        ui.label('Number of Pupils per Class').classes('text-lg font-bold text-slate-800')
-
-                    class_counts = dashboard_data.get('class_enrollment', {})
-
-                    class_colors = {
-                        'P1': {'bg': 'bg-blue-50/80', 'border': 'border-blue-200', 'text': 'text-blue-700'},
-                        'P2': {'bg': 'bg-emerald-50/80', 'border': 'border-emerald-200', 'text': 'text-emerald-700'},
-                        'P3': {'bg': 'bg-amber-50/80', 'border': 'border-amber-200', 'text': 'text-amber-700'},
-                        'P4': {'bg': 'bg-purple-50/80', 'border': 'border-purple-200', 'text': 'text-purple-700'},
-                        'P5': {'bg': 'bg-rose-50/80', 'border': 'border-rose-200', 'text': 'text-rose-700'},
-                        'P6': {'bg': 'bg-cyan-50/80', 'border': 'border-cyan-200', 'text': 'text-cyan-700'},
-                        'P7': {'bg': 'bg-indigo-50/80', 'border': 'border-indigo-200', 'text': 'text-indigo-700'}
-                    }
-
-                    ui.label('Lower Primary (P1 - P3)').classes('text-xs font-bold uppercase tracking-wider text-slate-400 mb-3')
-                    lower_classes = ['P1', 'P2', 'P3']
-                    with ui.row().classes('w-full gap-4 flex-wrap mb-6'):
-                        for cls_name in lower_classes:
-                            count = (
-                                class_counts.get(cls_name, 0) or 
-                                class_counts.get(cls_name.lower(), 0) or 
-                                class_counts.get(cls_name.replace('P', ''), 0) or
-                                class_counts.get(str(int(cls_name.replace('P',''))), 0)
-                            )
-                            style = class_colors.get(cls_name, {'bg': 'bg-slate-50', 'border': 'border-slate-200', 'text': 'text-slate-700'})
-                            with ui.card().classes(f"flex-1 min-w-[140px] p-5 {style['bg']} rounded-2xl border {style['border']} items-center justify-center shadow-sm"):
-                                ui.label(cls_name).classes(f"text-xs font-extrabold {style['text']} uppercase tracking-wider")
-                                ui.label(str(count)).classes('text-3xl font-black text-slate-900 mt-2')
-                                ui.label('Pupils').classes('text-[11px] font-medium text-slate-500 mt-0.5')
-
-                    ui.label('Upper Primary (P4 - P7)').classes('text-xs font-bold uppercase tracking-wider text-slate-400 mb-3')
-                    upper_classes = ['P4', 'P5', 'P6', 'P7']
-                    with ui.row().classes('w-full gap-4 flex-wrap'):
-                        for cls_name in upper_classes:
-                            count = (
-                                class_counts.get(cls_name, 0) or 
-                                class_counts.get(cls_name.lower(), 0) or 
-                                class_counts.get(cls_name.replace('P', ''), 0) or
-                                class_counts.get(str(int(cls_name.replace('P',''))), 0)
-                            )
-                            style = class_colors.get(cls_name, {'bg': 'bg-slate-50', 'border': 'border-slate-200', 'text': 'text-slate-700'})
-                            with ui.card().classes(f"flex-1 min-w-[140px] p-5 {style['bg']} rounded-2xl border {style['border']} items-center justify-center shadow-sm"):
-                                ui.label(cls_name).classes(f"text-xs font-extrabold {style['text']} uppercase tracking-wider")
-                                ui.label(str(count)).classes('text-3xl font-black text-slate-900 mt-2')
-                                ui.label('Pupils').classes('text-[11px] font-medium text-slate-500 mt-0.5')
-
-                # Subject Averages & Top Performers Grid
-                with ui.row().classes('w-full gap-6 items-stretch'):
-                    with ui.card().classes('flex-1 p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                        with ui.row().classes('w-full justify-between items-center mb-6'):
-                            ui.label('Subject Averages by Class').classes('text-lg font-bold text-slate-800')
+                global unread_notifications_badge, notifications_menu
+                with ui.row().classes('items-center gap-2 relative'):
+                    with ui.button(icon='notifications').props('flat round dense').classes('text-slate-600'):
+                        unread_notifications_badge = ui.badge('0', color='red').props('floating').classes('text-[10px]')
+                    
+                    with ui.menu() as notifications_menu:
+                        with ui.card().classes('w-80 p-3 shadow-lg rounded-xl'):
+                            ui.label('Live System Notifications').classes('text-xs font-bold text-slate-700 mb-2 border-b pb-1')
+                            notifications_container = ui.column().classes('w-full gap-1 max-h-60 overflow-y-auto')
                             
-                            available_classes = list(dashboard_data.get('class_subject_averages', {}).keys()) or ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']
-                            class_avg_select = ui.select(
-                                available_classes,
-                                value=available_classes[0] if available_classes else 'P1'
-                            ).props('dense outlined rounded').classes('w-32 bg-slate-50')
-                            class_avg_select.on('update:model-value', lambda e: update_class_averages(e.value))
+                            def update_notifications_dropdown():
+                                notifications_container.clear()
+                                try:
+                                    with sqlite3.connect(DB) as conn:
+                                        conn.row_factory = sqlite3.Row
+                                        recent_logs = conn.execute("SELECT username, timestamp, status FROM activity_logs ORDER BY id DESC LIMIT 5").fetchall()
+                                        if not recent_logs:
+                                            with notifications_container:
+                                                ui.label('No new activity notifications').classes('text-[11px] text-slate-400 italic py-2')
+                                            if 'unread_notifications_badge' in globals() and unread_notifications_badge:
+                                                unread_notifications_badge.text = '0'
+                                        else:
+                                            count = len(recent_logs)
+                                            if 'unread_notifications_badge' in globals() and unread_notifications_badge:
+                                                unread_notifications_badge.text = str(count)
+                                            with notifications_container:
+                                                for log in recent_logs:
+                                                    with ui.row().classes('w-full justify-between items-start py-1 border-b border-slate-100 last:border-none'):
+                                                        with ui.column().classes('gap-0 flex-1'):
+                                                            ui.label(f"{log['username']}: {log['status']}").classes('text-[11px] text-slate-800 font-medium')
+                                                            ui.label(log['timestamp']).classes('text-[9px] text-slate-400')
+                                except Exception:
+                                    pass
 
-                        averages_container = ui.column().classes('w-full gap-3')
+                            update_notifications_dropdown()
+                            ui.timer(5.0, update_notifications_dropdown)
 
-                        def update_class_averages(selected_class):
-                            averages_container.clear()
-                            class_data = dashboard_data.get('class_subject_averages', {}).get(selected_class, {'Maths': 0, 'English': 0, 'SST': 0, 'Science': 0})
-                            with averages_container:
-                                if not any(class_data.values()):
-                                    ui.label('No records found for this class.').classes('text-xs text-slate-400 italic py-6 text-center w-full')
-                                else:
-                                    for sub, val in class_data.items():
-                                        with ui.column().classes('w-full gap-1.5 bg-slate-50/70 p-3 rounded-2xl border border-slate-100'):
-                                            with ui.row().classes('w-full justify-between items-center'):
-                                                ui.label(sub).classes('text-xs font-bold text-slate-700')
-                                                ui.label(f"{val}%").classes('text-xs font-extrabold text-[#1b4d3e]')
-                                            ui.linear_progress(value=val/100 if val > 0 else 0.05, color='primary').classes('w-full rounded-full h-2')
+                with ui.tabs().classes(
+                        'w-full bg-white/85 backdrop-blur-md p-2 rounded-3xl shadow-xl border border-white/20'
+                    ) as nav_tabs:
+                    nav_tabs.classes('items-center justify-center')
 
-                        update_class_averages(class_avg_select.value)
+                    home_tab = ui.tab('Home Dashboard', icon='dashboard').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    teachers_tab = ui.tab('Entry Manager', icon='edit_note').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    Upper_primary_tab = ui.tab('Upper Primary Records', icon='assignment').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    lower_primary_tab = ui.tab('Lower Primary Records', icon='menu_book').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    staff_chat_tab = ui.tab('Staff Chat', icon='forum').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    logs_tab = ui.tab('System Logs', icon='history').classes('rounded-2xl transition-all duration-300 hover:bg-[#800000]/10')
+                    logout_tab = ui.tab('Log Out', icon='logout').classes('rounded-2xl transition-all duration-300 hover:bg-red-100 text-red-600')
+                starting_tab = home_tab
 
-                    with ui.card().classes('flex-1 p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                        with ui.row().classes('items-center gap-2 mb-6'):
-                            ui.icon('emoji_events', color='amber-7').classes('text-2xl')
-                            ui.label('Top Academic Performers').classes('text-lg font-bold text-slate-800')
+        with ui.tab_panels(nav_tabs, value=starting_tab).classes('w-full text-xl bg-transparent'):
+            with ui.tab_panel(home_tab).classes('p-0 gap-4 flex flex-col'):
+                with ui.card().classes('w-full p-6 bg-white shadow-lg rounded-2xl border border-slate-200'):
+                    with ui.row().classes('w-full items-start no-wrap gap-4 mb-8'):
+                        ui.image('badge.jpeg') \
+                            .classes('w-16 h-16 md:w-20 md:h-20 rounded-xl shadow-sm object-cover border border-slate-100 flex-shrink-0')
 
-                        performers = dashboard_data.get('top_students', [])
-                        if not performers:
-                            ui.label('No top performers recorded yet.').classes('text-xs text-slate-400 italic py-6 text-center w-full')
+                        with ui.column().classes('flex-1 justify-center'):
+                            ui.label("Administrator Dashboard") \
+                                .classes('text-h4 md:text-h3 font-bold').style('color: #1b4d3e !important; line-height: 1.2;')
+
+                            with ui.row().classes('items-center gap-2 mt-1'):
+                                ui.label(f"System Status: Operational | {datetime.now().strftime('%A, %B %d, %Y')}") \
+                                    .classes('text-slate-500 text-sm font-medium')
+
+                                ui.label('Centralized oversight for student academic progression and Report management system.') \
+                                    .classes('text-slate-400 text-xs mt-1')
+
+                    with ui.row().classes('w-full gap-4 items-stretch mb-8'):
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-sm rounded-xl border border-slate-200 cursor-pointer hover:border-primary transition-all') as btn_card1:
+                            with ui.row().classes('items-center gap-3'):
+                                ui.icon('person_add', color='primary').classes('text-2xl p-2 bg-emerald-50 rounded-lg')
+                                with ui.column().classes('gap-0'):
+                                    ui.label('Add New Scores').classes('text-sm font-bold text-slate-800')
+                                    ui.label('Open marks entry form').classes('text-xs text-slate-400')
+                            btn_card1.on('click', lambda: nav_tabs.set_value(teachers_tab))
+
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-sm rounded-xl border border-slate-200 cursor-pointer hover:border-primary transition-all') as btn_card2:
+                            with ui.row().classes('items-center gap-3'):
+                                ui.icon('print', color='primary').classes('text-2xl p-2 bg-emerald-50 rounded-lg')
+                                with ui.column().classes('gap-0'):
+                                    ui.label('Bulk Print Reports').classes('text-sm font-bold text-slate-800')
+                                    ui.label('Export class report sheets').classes('text-xs text-slate-400')
+                            btn_card2.on('click', download_all_reports)
+
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-sm rounded-xl border border-slate-200 cursor-pointer hover:border-primary transition-all') as btn_card3:
+                            with ui.row().classes('items-center gap-3'):
+                                ui.icon('forum', color='primary').classes('text-2xl p-2 bg-emerald-50 rounded-lg')
+                                with ui.column().classes('gap-0'):
+                                    ui.label('Staff Chat Hub').classes('text-sm font-bold text-slate-800')
+                                    ui.label('Check teacher discussions').classes('text-xs text-slate-400')
+                            btn_card3.on('click', lambda: nav_tabs.set_value(staff_chat_tab))
+
+                    with ui.row().classes('w-full gap-4 items-stretch mb-8'):
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-md rounded-2xl border border-slate-200'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('group', color='primary').classes('text-lg')
+                                ui.label('Total Enrollment').classes('text-xs font-bold uppercase text-slate-400')
+                            ui.label(str(dashboard_data.get('total_students', 0))).classes('text-3xl font-extrabold text-slate-800 mt-2')
+                            ui.label('Active Student Records').classes('text-xs font-semibold text-slate-500 mt-1')
+
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-md rounded-2xl border border-slate-200'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('school', color='primary').classes('text-lg')
+                                ui.label('Primary Classes').classes('text-xs font-bold uppercase text-slate-400')
+                            ui.label('P1 - P7').classes('text-3xl font-extrabold text-slate-800 mt-2')
+                            ui.label('Managing controlled classroom environments.').classes('text-xs font-semibold text-slate-500 mt-1')
+
+                        with ui.card().classes('flex-1 p-4 bg-white shadow-md rounded-2xl border border-slate-200'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('trending_up', color='primary').classes('text-lg')
+                                ui.label('Aggregate Success Rate').classes('text-xs font-bold uppercase text-slate-400')
+
+                            perc = dashboard_data.get('pass_rate', 0) * 100
+                            percentage = round(perc, 1)
+                            status = "Optimal" if percentage >= 85 else "Satisfactory" if percentage >= 70 else "Needs Review"
+                            ui.label(f"{percentage}%").classes('text-3xl font-extrabold text-slate-800 mt-2')
+                            ui.label(f"Performance Level: {status}").classes('text-xs font-semibold text-slate-500 mt-1')
+
+                    with ui.card().classes('w-full p-5 bg-white shadow-md rounded-2xl border border-slate-200 mb-8'):
+                        with ui.row().classes('items-center gap-2 mb-4'):
+                            ui.icon('groups', color='primary').classes('text-xl')
+                            ui.label('Number of Pupils per Class').classes('text-base font-bold text-slate-800')
+
+                        class_counts = dashboard_data.get('class_enrollment', {})
+
+                        # Define a dictionary mapping each class to a distinct color theme (background & border)
+                        class_colors = {
+                            'P1': {'bg': 'bg-blue-50', 'border': 'border-blue-200', 'text': 'text-blue-700'},
+                            'P2': {'bg': 'bg-emerald-50', 'border': 'border-emerald-200', 'text': 'text-emerald-700'},
+                            'P3': {'bg': 'bg-amber-50', 'border': 'border-amber-200', 'text': 'text-amber-700'},
+                            'P4': {'bg': 'bg-purple-50', 'border': 'border-purple-200', 'text': 'text-purple-700'},
+                            'P5': {'bg': 'bg-rose-50', 'border': 'border-rose-200', 'text': 'text-rose-700'},
+                            'P6': {'bg': 'bg-cyan-50', 'border': 'border-cyan-200', 'text': 'text-cyan-700'},
+                            'P7': {'bg': 'bg-indigo-50', 'border': 'border-indigo-200', 'text': 'text-indigo-700'}
+                        }
+
+                        # Lower Primary Section
+                        ui.label('Lower Primary (P1 - P3)').classes('text-xs font-bold uppercase text-slate-500 mb-2')
+                        lower_classes = ['P1', 'P2', 'P3']
+                        with ui.row().classes('w-full gap-4 flex-wrap mb-6'):
+                            for cls_name in lower_classes:
+                                count = (
+                                    class_counts.get(cls_name, 0) or 
+                                    class_counts.get(cls_name.lower(), 0) or 
+                                    class_counts.get(cls_name.replace('P', ''), 0)
+                                )
+                                style = class_colors.get(cls_name, {'bg': 'bg-slate-50', 'border': 'border-slate-200', 'text': 'text-slate-700'})
+                                with ui.card().classes(f"flex-1 min-w-[120px] p-4 {style['bg']} rounded-xl border {style['border']} items-center justify-center"):
+                                    ui.label(cls_name).classes(f"text-xs font-bold {style['text']} uppercase")
+                                    ui.label(str(count)).classes('text-2xl font-black text-slate-800 mt-1')
+                                    ui.label('Pupils').classes('text-[10px] text-slate-500')
+
+                        # Upper Primary Section
+                        ui.label('Upper Primary (P4 - P7)').classes('text-xs font-bold uppercase text-slate-500 mb-2')
+                        upper_classes = ['P4', 'P5', 'P6', 'P7']
+                        with ui.row().classes('w-full gap-4 flex-wrap'):
+                            for cls_name in upper_classes:
+                                count = (
+                                    class_counts.get(cls_name, 0) or 
+                                    class_counts.get(cls_name.lower(), 0) or 
+                                    class_counts.get(cls_name.replace('P', ''), 0)
+                                )
+                                style = class_colors.get(cls_name, {'bg': 'bg-slate-50', 'border': 'border-slate-200', 'text': 'text-slate-700'})
+                                with ui.card().classes(f"flex-1 min-w-[120px] p-4 {style['bg']} rounded-xl border {style['border']} items-center justify-center"):
+                                    ui.label(cls_name).classes(f"text-xs font-bold {style['text']} uppercase")
+                                    ui.label(str(count)).classes('text-2xl font-black text-slate-800 mt-1')
+                                    ui.label('Pupils').classes('text-[10px] text-slate-500')
+
+                    with ui.row().classes('w-full gap-4 items-stretch justify-center mb-8'):
+                        with ui.card().classes('w-full max-w-[500px] p-5 bg-white shadow-md rounded-2xl border border-slate-200'):
+                            with ui.row().classes('w-full justify-between items-center mb-4'):
+                                ui.label('Subject Averages by Class').classes('text-base font-bold text-slate-800')
+                                
+                                available_classes = list(dashboard_data.get('class_subject_averages', {}).keys()) or ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']
+                                class_avg_select = ui.select(
+                                    available_classes,
+                                    value=available_classes[0] if available_classes else 'P1',
+                                    on_change=lambda e: update_class_averages(e.value)
+                                ).props('dense outlined').classes('w-24')
+
+                            averages_container = ui.column().classes('w-full gap-1')
+
+                            def update_class_averages(selected_class):
+                                averages_container.clear()
+                                class_data = dashboard_data.get('class_subject_averages', {}).get(selected_class, {'Maths': 0, 'English': 0, 'SST': 0, 'Science': 0})
+                                with averages_container:
+                                    if not any(class_data.values()):
+                                        ui.label('No records found for this class.').classes('text-xs text-slate-400 italic py-4')
+                                    else:
+                                        for sub, val in class_data.items():
+                                            with ui.column().classes('w-full gap-1 mb-3'):
+                                                with ui.row().classes('w-full justify-between items-center'):
+                                                    ui.label(sub).classes('text-xs font-semibold text-slate-600')
+                                                    ui.label(f"{val}%").classes('text-xs font-bold text-slate-800')
+                                                ui.linear_progress(value=val/100 if val > 0 else 0.05, color='primary').classes('w-full rounded-sm')
+
+                            update_class_averages(class_avg_select.value)
+
+                        with ui.card().classes('w-full max-w-[500px] p-5 bg-white shadow-md rounded-2xl border border-slate-200'):
+                            with ui.row().classes('items-center gap-2 mb-4'):
+                                ui.icon('emoji_events', color='amber-7').classes('text-xl')
+                                ui.label('Top Academic Performers').classes('text-base font-bold text-slate-800')
+
+                            for idx, stud in enumerate(dashboard_data.get('top_students', [])):
+                                with ui.row().classes('w-full items-center justify-between py-2 border-b border-slate-50 last:border-none'):
+                                    ui.label(f"{idx+1}. {stud.get('Name', 'Unknown')} ({stud.get('Class', 'N/A')})").classes('text-sm font-bold text-slate-800')
+                                    ui.badge(f"Agg: {stud.get('Aggregates', 0)} | {stud.get('Division', 'N/A')}", color='emerald-50') \
+                                        .classes('text-emerald-700 font-bold text-[10px]')
+
+                    with ui.card().classes('w-full p-5 bg-white shadow-md rounded-2xl border border-slate-200'):
+                        with ui.row().classes('items-center justify-between mb-3'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('history', color='primary').classes('text-xl')
+                                ui.label('Recent System Activity').classes('text-base font-bold text-slate-800')
+                            ui.button('View All', on_click=lambda: nav_tabs.set_value(logs_tab)).props('flat dense text-color="primary" size="sm"')
+
+                        logs_list = dashboard_data.get('user_logs', [])
+                        if not logs_list:
+                            ui.label('No recent activities logged.').classes('text-xs text-slate-400 italic py-2')
                         else:
-                            with ui.column().classes('w-full gap-3'):
-                                for idx, stud in enumerate(performers):
-                                    with ui.row().classes('w-full items-center justify-between p-4 bg-slate-50/80 rounded-2xl border border-slate-100'):
-                                        with ui.row().classes('items-center gap-3'):
-                                            ui.badge(str(idx+1), color='primary').classes('rounded-full text-xs font-bold w-7 h-7 flex items-center justify-center')
-                                            with ui.column().classes('gap-0'):
-                                                ui.label(stud.get('Name', 'Unknown')).classes('text-sm font-bold text-slate-900')
-                                                ui.label(f"Class: {stud.get('Class', 'N/A')}").classes('text-xs text-slate-500')
-                                        ui.badge(f"Agg: {stud.get('Aggregates', 0)} | {stud.get('Division', 'N/A')}", color='emerald-50') \
-                                            .classes('text-emerald-800 font-bold text-xs px-3 py-1 rounded-full border border-emerald-200')
+                            with ui.column().classes('w-full gap-2'):
+                                for log in logs_list[:4]:
+                                    with ui.row().classes('w-full justify-between items-center py-2 border-b border-slate-100 last:border-none'):
+                                        with ui.row().classes('items-center gap-2'):
+                                            ui.badge(log.get('username', 'System'), color='slate-200').classes('text-slate-700 text-[10px]')
+                                            ui.label(log.get('status', '')).classes('text-xs text-slate-700')
+                                        ui.label(log.get('timestamp', '')).classes('text-[11px] text-slate-400')
 
-                # Recent System Activity Card
-                with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                    with ui.row().classes('items-center justify-between mb-4'):
-                        with ui.row().classes('items-center gap-2'):
-                            ui.icon('history', color='primary').classes('text-2xl')
-                            ui.label('Recent System Activity').classes('text-lg font-bold text-slate-800')
-                        ui.button('View All', on_click=lambda: nav_tabs.set_value(logs_tab)).props('flat dense text-color="primary" size="sm"')
-
-                    logs_list = dashboard_data.get('user_logs', [])
-                    if not logs_list:
-                        ui.label('No recent activities logged.').classes('text-xs text-slate-400 italic py-2')
-                    else:
-                        with ui.column().classes('w-full gap-2'):
-                            for log in logs_list[:4]:
-                                with ui.row().classes('w-full justify-between items-center p-3 bg-slate-50/50 rounded-2xl border border-slate-100'):
-                                    with ui.row().classes('items-center gap-3'):
-                                        ui.badge(log.get('username', 'System'), color='slate-200').classes('text-slate-700 text-xs font-semibold px-2.5 py-0.5 rounded-full')
-                                        ui.label(log.get('status', '')).classes('text-xs font-medium text-slate-700')
-                                    ui.label(log.get('timestamp', '')).classes('text-xs text-slate-400 font-mono')
-
-            with ui.tab_panel(teachers_tab).classes('p-0 gap-6 flex flex-col'):
-                with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                    with ui.row().classes('w-full items-center justify-between mb-2'):
+            with ui.tab_panel(teachers_tab).classes('p-0 gap-4 flex flex-col'):
+                with ui.card().classes('w-full p-6 bg-white shadow-md rounded-xl border border-slate-200 mb-4'):
+                    with ui.row().classes('w-full items-center justify-between'):
                         ui.label('Upper Primary Marks Entry Manager').classes('text-lg font-bold text-slate-800')
                         with ui.row().classes('gap-2 items-center'):
-                            launch_btn = ui.button('Run Upper Insert', icon='add_circle').props('color="primary" unelevated rounded').classes('shadow-md')
-                            minimize_btn = ui.button('Minimize', icon='keyboard_arrow_up').props('color="grey-7" flat dense rounded')
-                    form_container = ui.column().classes('w-full gap-4 transition-all duration-300 mt-2')
+                            launch_btn = ui.button('Run Upper Insert', icon='add_circle').props('color="primary" unelevated')
+                            minimize_btn = ui.button('Minimize', icon='keyboard_arrow_up').props('color="grey-7" flat dense')
+                    form_container = ui.column().classes('w-full gap-4 transition-all duration-300')
                     form_container.set_visibility(False)
                     launch_btn.on_click(lambda: (form_container.set_visibility(True), form_container.clear(), exec('with form_container: insert.insert()')))
                     minimize_btn.on_click(lambda: form_container.set_visibility(False))
 
-                with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
-                    with ui.row().classes('w-full items-center justify-between mb-2'):
+                with ui.card().classes('w-full p-6 bg-white shadow-md rounded-xl border border-slate-200'):
+                    with ui.row().classes('w-full items-center justify-between'):
                         ui.label('Lower Primary Marks Entry Manager (P.1 - P.3)').classes('text-lg font-bold text-slate-800')
                         with ui.row().classes('gap-2 items-center'):
-                            launch_lower_btn = ui.button('Run Lower Insert', icon='add_circle').props('color="primary" unelevated rounded').classes('shadow-md')
-                            minimize_lower_btn = ui.button('Minimize', icon='keyboard_arrow_up').props('color="grey-7" flat dense rounded')
-                    lower_form_container = ui.column().classes('w-full gap-4 transition-all duration-300 mt-2')
+                            launch_lower_btn = ui.button('Run Lower Insert', icon='add_circle').props('color="primary" unelevated')
+                            minimize_lower_btn = ui.button('Minimize', icon='keyboard_arrow_up').props('color="grey-7" flat dense')
+                    lower_form_container = ui.column().classes('w-full gap-4 transition-all duration-300')
                     lower_form_container.set_visibility(False)
                     launch_lower_btn.on_click(lambda: (lower_form_container.set_visibility(True), lower_form_container.clear(), exec('with lower_form_container: lower.lower()')))
                     minimize_lower_btn.on_click(lambda: lower_form_container.set_visibility(False))
 
-            with ui.tab_panel(Upper_primary_tab).classes('p-0 gap-6 flex flex-col'):
-                with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100 flex flex-col gap-5'):
-                    with ui.row().classes('w-full justify-between items-center flex-wrap gap-3'):
-                        ui.label('Upper Primary Academic Records').classes('text-xl font-bold text-slate-800')
+            with ui.tab_panel(Upper_primary_tab).classes('p-0 gap-4 flex flex-col'):
+                with ui.card().classes('w-full p-6 bg-white shadow-md rounded-xl border border-slate-200 flex flex-col gap-4'):
+                    with ui.row().classes('w-full justify-between items-center flex-wrap gap-2'):
+                        ui.label('Upper Primary Academic Records').classes('text-lg font-bold text-slate-800')
 
-                        with ui.row().classes('items-center gap-2 flex-wrap'):
+                        with ui.row().classes('items-center gap-2'):
                             class_select = ui.select(
-                                ['All', 'P4', 'P5', 'P6', 'P7'],
+                                ['All', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'],
                                 value='All',
-                                label='Class'
-                            ).props('dense outlined rounded').classes('w-28 bg-slate-50')
-                            class_select.on('update:model-value', lambda: refresh_table_data(class_select.value, year_input.value, term_select.value))
+                                label='Filter by Class',
+                                on_change=lambda: refresh_table_data(class_select.value, year_select.value)
+                            ).props('dense outlined').classes('w-32')
 
-                            term_select = ui.select(
-                                ['All', 'Term 1', 'Term 2', 'Term 3'],
+                            current_year = datetime.now().year
+                            year_options = ['All', str(current_year), str(current_year - 1), str(current_year - 2)]
+                            year_select = ui.select(
+                                year_options,
                                 value='All',
-                                label='Term'
-                            ).props('dense outlined rounded').classes('w-32 bg-slate-50')
-                            term_select.on('update:model-value', lambda: refresh_table_data(class_select.value, year_input.value, term_select.value))
+                                label='Filter by Year',
+                                on_change=lambda: refresh_table_data(class_select.value, year_select.value)
+                            ).props('dense outlined').classes('w-32')
 
-                            year_input = ui.input(placeholder='Year...').props('dense outlined clearable rounded').classes('w-28 bg-slate-50')
-                            year_input.on('change', lambda: refresh_table_data(class_select.value, year_input.value, term_select.value))
-
-                        with ui.row().classes('items-center gap-2 flex-wrap'):
+                        with ui.row().classes('items-center gap-2'):
                             def export_csv():
                                 if not all_records:
                                     ui.notify("No data to export", type='warning')
@@ -1481,18 +1260,16 @@ def home(client=None):
                                 ui.download(src=buffer.getvalue().encode('utf-8'), filename='student_records.csv')
                                 ui.notify("Download started", type='positive')
 
-                            search_input = ui.input(placeholder='Search student...').props('dense outlined clearable rounded').classes('bg-slate-50')
-                            ui.button(icon='search', on_click=lambda: apply_filter(search_input.value)).props('dense unelevated color="primary"').classes('rounded-xl')
-                            ui.button('Print All', icon='print', on_click=download_all_reports).props('flat dense color="primary"').classes('rounded-xl')
-                            ui.button('Export CSV', icon='download', on_click=export_csv).props('flat dense color="primary"').classes('rounded-xl')
-                            ui.button('Refresh', icon='refresh', on_click=lambda: refresh_table_data(class_select.value, year_input.value, term_select.value)).props('outline dense text-color="primary"').classes('rounded-xl')
+                            search_input = ui.input(placeholder='Search student name...').props('dense outlined clearable')
+                            ui.button(icon='search', on_click=lambda: apply_filter(search_input.value)).props('dense color="primary"')
+                            ui.button('Export CSV', icon='download', on_click=export_csv).props('flat dense color="primary"')
+                            ui.button('Refresh', icon='refresh', on_click=lambda: refresh_table_data(class_select.value, year_select.value)).props('outline dense text-color="primary"')
 
                     columns = [
                         {'name': 'Name', 'label': 'Student', 'field': 'Name', 'align': 'left', 'sortable': True},
                         {'name': 'PaymentCode', 'label': 'Payment Code', 'field': 'PaymentCode', 'align': 'center', 'sortable': True},
                         {'name': 'Class', 'label': 'Class', 'field': 'Class', 'align': 'center'},
                         {'name': 'Year', 'label': 'Year', 'field': 'Year', 'align': 'center', 'sortable': True},
-                        {'name': 'Term', 'label': 'Term', 'field': 'Term', 'align': 'center'},
                         {'name': 'Maths', 'label': 'Maths', 'field': 'Maths', 'align': 'center'},
                         {'name': 'Maths_Grade', 'label': 'M. Grade', 'field': 'Maths_Grade', 'align': 'center'},
                         {'name': 'English', 'label': 'English', 'field': 'English', 'align': 'center'},
@@ -1508,11 +1285,12 @@ def home(client=None):
                         {'name': 'actions', 'label': 'Actions', 'field': 'actions', 'align': 'center'}
                     ]
                     
-                    student_table = ui.table(columns=columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100 rounded-2xl')
+                    student_table = ui.table(columns=columns, rows=[], row_key='id').classes('w-full shadow-inner border border-slate-100')
+                    ui.button('Print All', icon='print', on_click=download_all_reports).props('flat dense color="primary"')
                     
                     student_table.add_slot('body-cell-Division', '''
                         <q-td :props="props">
-                            <q-badge :color="props.value == 'Div U' ? 'red' : 'green'" class="px-2.5 py-1 rounded-full font-bold">
+                            <q-badge :color="props.value == 'Div U' ? 'red' : 'green'">
                                 {{ props.value }}
                             </q-badge>
                         </q-td>
@@ -1535,7 +1313,7 @@ def home(client=None):
                     def apply_filter(query):
                         global student_table, all_records
                         if not query:
-                            refresh_table_data(class_select.value, year_input.value, term_select.value)
+                            refresh_table_data(class_select.value, year_select.value)
                         else:
                             q = query.lower()
                             student_table.rows = [r for r in all_records if q in str(r.get('Name', '')).lower()]
@@ -1562,22 +1340,25 @@ def home(client=None):
                     refresh_table_data()
             
             with ui.tab_panel(lower_primary_tab):
-                view_lower_records_content(lower_primary_tab)
+                with ui.card().classes('w-full p-6'):
+                    view_lower_records_content(lower_primary_tab)
 
             with ui.tab_panel(staff_chat_tab):
-                staff_chat_content()
+                with ui.card().classes('w-full p-6'):
+                    staff_chat_content()
 
-            with ui.tab_panel(logs_tab).classes('p-0 gap-6 flex flex-col'):
-                view_system_logs_content(logs_tab)
+            with ui.tab_panel(logs_tab).classes('p-0 gap-4 flex flex-col'):
+                with ui.card().classes('w-full p-6'):
+                    view_system_logs_content(logs_tab)
 
-            with ui.tab_panel(logout_tab).classes('p-0 justify-center items-center flex min-h-[50vh]'):
-                with ui.card().classes('w-full max-w-md p-10 text-center items-center flex flex-col gap-6 shadow-2xl rounded-3xl border border-slate-100 bg-white'):
-                    ui.icon('power_settings_new', color='red-600') \
+            with ui.tab_panel(logout_tab).classes('p-0 justify-center items-center flex min-h-[40vh]'):
+                with ui.card().classes('w-full max-w-sm p-10 text-center items-center flex flex-col gap-6 shadow-xl rounded-3xl border border-slate-100'):
+                    ui.icon('power_settings_new', color='#1b4d3e') \
                         .classes('text-6xl bg-red-50 p-6 rounded-full shadow-inner')
                     
                     with ui.column().classes('gap-1'):
-                        ui.label('Ready to leave?').classes('text-2xl font-black text-slate-900')
-                        ui.label('Your session will be securely terminated.').classes('text-sm text-slate-500')
+                        ui.label('Ready to leave?').classes('text-2xl font-extrabold text-slate-800')
+                        ui.label('Your session will be securely terminated.').classes('text-sm text-slate-400')
                     
                     with ui.row().classes('w-full gap-3 mt-4 justify-center'):
                         def perform_logout():
@@ -1585,11 +1366,11 @@ def home(client=None):
                             app.storage.user.clear()
                             ui.navigate.to('/')
                         ui.button('Sign Out', icon='logout', on_click=perform_logout) \
-                            .props('color="red" unelevated size="md" rounded') \
-                            .classes('px-8 shadow-md')
+                            .props('color="primary" unelevated size="md"') \
+                            .classes('rounded-full px-6')
                         
                         ui.button('Cancel', on_click=lambda: nav_tabs.set_value(starting_tab)) \
-                            .props('flat color="grey-7" rounded').classes('px-8')
+                            .props('flat color="grey-7"').classes('rounded-full px-6')
 
 # Function to recalculate class positions/ranks prioritizing Total (descending) then Aggregates (ascending)
 def update_all_ranks():
