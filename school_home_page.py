@@ -123,6 +123,7 @@ def init_db_and_load_records():
         cursor.execute(f"UPDATE lower_primary_results SET year = '{current_year_str}' WHERE year IS NULL OR year = ''")
 
         conn.commit()
+
 # --- AUTOMATIC INACTIVITY LOGOUT CHECKER & COUNTDOWN BANNER ---
 INACTIVITY_LIMIT_MINUTES = 30
 
@@ -567,7 +568,6 @@ def open_edit_dialog(record):
                     ))
                     conn.commit()
 
-                # Ensure class-wide ranks and divisions sync properly across the table view
                 update_all_ranks()
 
                 ui.notify("Record updated and divisions recalculated successfully!", type='positive')
@@ -583,7 +583,7 @@ def open_edit_dialog(record):
 
     edit_dialog.open()
 
-# --- INITIALIZE CHAT DATABASE TABLE ---
+# --- INITIALIZE CHAT & LOWER PRIMARY DATABASE TABLES ---
 def init_chat_db():
   with sqlite3.connect(DB) as conn:
     cursor = conn.cursor()
@@ -597,12 +597,11 @@ def init_chat_db():
         )
     ''')
     
-    # 1. CREATE THE TABLE FIRST SO IT ALWAYS EXISTS
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS lower_primary_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             payment_code TEXT,
-            pupil_name TEXT,
+            name TEXT,
             class_level TEXT,
             term TEXT,
             year TEXT,
@@ -620,7 +619,6 @@ def init_chat_db():
         )
     ''')
     
-    # 2. Safely check and add columns via PRAGMA table_info to avoid 'no such column' errors on existing tables
     cursor.execute("PRAGMA table_info(lower_primary_results)")
     existing_columns = [row[1] for row in cursor.fetchall()]
 
@@ -644,10 +642,8 @@ def init_chat_db():
         except sqlite3.OperationalError:
             pass
     
-    # 3. SAFE TO RUN UPDATE NOW THAT THE COLUMN IS GUARANTEED TO EXIST
     cursor.execute(f"UPDATE lower_primary_results SET year = '{current_year_str}' WHERE year IS NULL OR year = ''")
 
-    # Ensure upper primary academic_records table exists as well
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS academic_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -680,6 +676,7 @@ def init_chat_db():
     conn.commit()
 
 init_chat_db()
+
 # --- STAFF CHAT ROOM CONTENT ---
 def staff_chat_content():
     chat_container = ui.column().classes(
@@ -698,10 +695,7 @@ def staff_chat_content():
     def delete_message(msg_id):
         try:
             with sqlite3.connect(DB) as conn:
-                conn.execute(
-                    'DELETE FROM staff_chat WHERE id = ?',
-                    (msg_id,)
-                )
+                conn.execute('DELETE FROM staff_chat WHERE id = ?', (msg_id,))
             ui.notify('Message deleted', type='warning')
             load_messages()
         except Exception as e:
@@ -714,14 +708,10 @@ def staff_chat_content():
             try:
                 with sqlite3.connect(DB) as conn:
                     conn.row_factory = sqlite3.Row
-                    messages = conn.execute(
-                        'SELECT * FROM staff_chat ORDER BY id ASC'
-                    ).fetchall()
+                    messages = conn.execute('SELECT * FROM staff_chat ORDER BY id ASC').fetchall()
 
                 if not messages:
-                    with ui.column().classes(
-                        'w-full items-center justify-center h-full gap-2'
-                    ):
+                    with ui.column().classes('w-full items-center justify-center h-full gap-2'):
                         ui.icon('chat_bubble_outline', size='48px', color='#1b4d3e').classes('opacity-40')
                         ui.label('No messages yet').classes('text-slate-500 font-semibold')
                         ui.label('Start the staff conversation').classes('text-xs text-slate-400')
@@ -1175,7 +1165,6 @@ def home(client=None):
                                 font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
                             }
                             
-                            /* Ensure A4 report print fits single page and respects page breaks */
                             @media print {
                                 body {
                                     background: white !important;
