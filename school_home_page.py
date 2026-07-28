@@ -1,3 +1,4 @@
+name=school_home_page_2.py
 import sqlite3
 import io
 from datetime import datetime, timedelta
@@ -73,7 +74,8 @@ def init_db_and_load_records():
                 social_studies REAL,
                 science REAL,
                 re_religious_education REAL,
-                class_teacher TEXT
+                class_teacher TEXT,
+                timestamp TEXT
             )
         ''')
 
@@ -109,6 +111,12 @@ def init_db_and_load_records():
         if 'term' not in existing_columns:
             try:
                 cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN term TEXT")
+            except sqlite3.OperationalError:
+                pass
+
+        if 'timestamp' not in existing_columns:
+            try:
+                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
             except sqlite3.OperationalError:
                 pass
             
@@ -608,7 +616,8 @@ def init_chat_db():
             social_studies REAL,
             science REAL,
             re_religious_education REAL,
-            class_teacher TEXT
+            class_teacher TEXT,
+            timestamp TEXT
         )
     ''')
     
@@ -627,6 +636,12 @@ def init_chat_db():
     if 'term' not in existing_columns:
         try:
             cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN term TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+    if 'timestamp' not in existing_columns:
+        try:
+            cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
         except sqlite3.OperationalError:
             pass
     
@@ -1067,6 +1082,12 @@ def view_lower_records_content(lower_primary_tab):
                                 conn.commit()
                             except Exception:
                                 pass
+                        if 'timestamp' not in columns_info:
+                            try:
+                                cursor.execute("ALTER TABLE lower_primary_results ADD COLUMN timestamp TEXT")
+                                conn.commit()
+                            except Exception:
+                                pass
 
                         query = "SELECT * FROM lower_primary_results WHERE 1=1"
                         params = []
@@ -1294,7 +1315,7 @@ def home(client=None):
                         ui.label(f"{percentage}%").classes('text-4xl font-black text-slate-900 mt-3')
                         ui.label(f"Performance Level: {status}").classes('text-xs font-semibold text-emerald-800 mt-1')
 
-                # Enrollment Breakdown Section (Updated to correctly parse counts for P1, P2, and P3[cite: 4])
+                # Enrollment Breakdown Section (Updated to correctly parse counts for P1, P2, and P3)[cite: 4]
                 with ui.card().classes('w-full p-6 bg-white shadow-xl rounded-3xl border border-slate-100'):
                     with ui.row().classes('items-center gap-2 mb-6'):
                         ui.icon('groups', color='primary').classes('text-2xl')
